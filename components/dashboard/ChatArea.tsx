@@ -104,7 +104,8 @@ export default function ChatArea({ activeTool, currentChatId, onChatCreated, onO
 
   const handleSend = useCallback(
     async (text: string, modelId: string, file?: AttachedFile | null) => {
-      const cost = toolCost(activeTool);
+      /* File analysis uses the same credit cost as image generation (vision model) */
+      const cost = file ? CREDITS.IMAGE : toolCost(activeTool);
 
       /* Credit gate — zero credits → redirect straight to subscription tab */
       if (profile && profile.subscription === "free" && profile.credits <= 0) {
@@ -172,6 +173,13 @@ export default function ChatArea({ activeTool, currentChatId, onChatCreated, onO
             signal: abortRef.current.signal,
           });
 
+          if (res.status === 403) {
+            /* Not enough credits for vision analysis */
+            setMessages((prev) => prev.filter((m) => m.id !== aiMsgId && m.id !== userMsg.id));
+            setNoCreditsOpen(true);
+            pushNotif({ title: "Credits Exhausted", sub: `Document analysis costs ${CREDITS.IMAGE} credits.`, type: "error" });
+            return;
+          }
           if (!res.ok || !res.body) {
             const d = await res.json().catch(() => ({}));
             setMessages((prev) =>

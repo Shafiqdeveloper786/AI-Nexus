@@ -1,210 +1,328 @@
-# 🛡️ AI Mentor Gateway
+<div align="center">
 
-> **Secure, passwordless authentication gateway for the AI Mentor platform — built with a cyber-glass aesthetic and instant Streamlit redirection.**
+# ⚡ AI NEXUS
+### The Ultimate Quantum AI Dashboard — v4.0.2
+
+*One platform. Five AI superpowers. Zero compromises.*
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![NextAuth](https://img.shields.io/badge/Auth.js-v5_Beta-purple?style=for-the-badge&logo=auth0&logoColor=white)](https://authjs.dev/)
-[![Prisma](https://img.shields.io/badge/Prisma-6.x-2D3748?style=for-the-badge&logo=prisma)](https://www.prisma.io/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Vercel](https://img.shields.io/badge/Deployed_on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
+[![Prisma](https://img.shields.io/badge/Prisma-6.x-2D3748?style=for-the-badge&logo=prisma)](https://www.prisma.io/)
+[![NextAuth](https://img.shields.io/badge/Auth.js-v5-purple?style=for-the-badge&logo=auth0&logoColor=white)](https://authjs.dev/)
+[![Groq](https://img.shields.io/badge/Groq-LPU-F55036?style=for-the-badge)](https://groq.com/)
+[![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-FF0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
+
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-AI_Nexus-00d4ff?style=for-the-badge)](https://github.com/Shafiqdeveloper786/AI-Nexus)
+[![License](https://img.shields.io/badge/License-MIT-00ff88?style=for-the-badge)](LICENSE)
 
 ---
 
-## ✨ Key Features
+<img src="https://raw.githubusercontent.com/Shafiqdeveloper786/AI-Nexus/main/public/preview.png" alt="AI Nexus Dashboard Preview" width="100%" style="border-radius: 12px"/>
 
-| Feature | Description |
-|---|---|
-| 🔐 **Passwordless OTP Auth** | Register & login with just an email. A 6-digit OTP is delivered via Gmail and verified server-side. |
-| 🔵 **Google OAuth 2.0** | One-click sign-in with Google, fully integrated via NextAuth v5. |
-| ⚡ **Instant Streamlit Bridge** | After successful auth, the user is immediately redirected to the AI Mentor Streamlit app with their name as a URL param. |
-| 🌐 **Mobile-First Responsive UI** | Cyber-glass dark theme built entirely with Tailwind CSS. Works on all screen sizes with zero horizontal scroll. |
-| 🛡️ **Two-Layer Session Guard** | Edge middleware (NextAuth) blocks unauthenticated requests server-side. Client-side `useSession` guard provides a second layer of protection. |
-| 🍪 **Production-Safe Cookies** | Explicit `__Secure-` prefixed, `httpOnly`, `SameSite=lax` cookies on HTTPS (Vercel). Automatic dev/prod switching. |
-| 🔄 **OTP Replay Protection** | Each OTP is single-use, time-limited (10 min), and marked `used: true` the moment it is consumed. |
+> **Cyberpunk glassmorphism UI · Gemini-style streaming · 40,000 credit economy · Production-hardened auth**
+
+</div>
 
 ---
 
-## 🏗️ Architecture & Auth Flow
+## 🌌 What is AI Nexus?
+
+AI Nexus is a **full-stack AI SaaS dashboard** built entirely with Next.js 15 App Router. It gives users access to five specialized AI modules — all behind a single, secure, credit-gated interface with a cyberpunk glassmorphism design.
+
+No third-party AI wrappers. No external dashboards. Everything runs natively inside the Next.js application — streaming chat, image generation, code synthesis, SQL queries, and PDF resume exports.
+
+---
+
+## 🚀 Core Modules
+
+### 🧠 Nexus Chat — Real-Time Streaming AI
+- Token-by-token streaming via Groq's LPU inference (sub-100ms TTFT)
+- **Zero-Vibration UI**: AI bubble is pre-created before the fetch begins — the `InlineThinking` waveform renders *inside* the same stable container, eliminating all layout shifts
+- Gemini-style `▊` blinking cursor during streaming via CSS `::after`
+- Smart sticky-scroll: auto-scroll pauses when user scrolls up to read history
+- **No-Unsolicited-Code filter**: regex gate + hard system-prompt injection prevents the AI from adding Python examples to non-technical answers
+- Persistent document context: attach a PDF/image once, ask follow-up questions without re-uploading
+- Four models selectable per message (see [Active Models](#-active-ai-models))
+
+### 🎨 Image Studio — Multi-Model AI Generation
+- **Provider cascade**: FLUX.1-schnell → FLUX.1-dev → SDXL → SD 2.1 → **Pollinations AI** (tertiary fallback, no API key required)
+- "High Traffic" alert shown **only** if the user has remaining turns but all providers fail
+- **3 images / 24 hours** hard limit — checked client-side before any API call; hitting the limit redirects instantly to the Subscription tab
+- One-click HD download + feedback (thumbs up/down)
+- Negative prompt support
+
+### 💻 Code & SQL Generator
+- Dedicated system prompts for TypeScript, Python, Go, Rust, and SQL
+- Syntax-highlighted output with one-click copy
+- Full conversation history in the sidebar
+- PostgreSQL, MongoDB, and Prisma ORM query generation
+
+### 📄 AI Resume Builder
+- AI-crafted, ATS-optimised resume from a plain-text brief
+- A4-scaled PDF export via jsPDF (accurate line-height calculation, no overflow)
+- Sections: Experience, Skills, Education, Projects
+- Quantified achievements auto-generated ("Reduced latency by 40%…")
+
+### 🔍 Nexus Vision — Document & Image Analysis
+- Upload PDF (text or scanned) or image; ask any question about it
+- **Three-path analysis engine**:
+  - Text PDFs → `pdf-parse` text extraction → Groq text model
+  - Images → base64 → Groq vision model
+  - Scanned PDFs → `pdfjs-dist v5 + canvas` renders pages to PNG → Groq vision model
+- Document context persisted across the conversation session
+
+---
+
+## 🏗️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Framework** | Next.js 15 (App Router, Server Components, Server Actions) |
+| **Language** | TypeScript 5.8 (strict mode) |
+| **Styling** | Tailwind CSS 3 + custom cyber-glass utilities + Framer Motion 12 |
+| **Auth** | NextAuth / Auth.js v5 Beta — JWT strategy, PrismaAdapter |
+| **Primary DB** | MongoDB Atlas via Prisma (User, Account, Session, OtpToken) |
+| **AI Data DB** | MongoDB Atlas via Mongoose (UserProfile, Chat, Asset) |
+| **Chat AI** | Groq SDK — Llama 3.3 70B / 3.1 8B / 3.2 Vision |
+| **Image AI** | HuggingFace Inference SDK + Pollinations AI (free fallback) |
+| **Email** | Nodemailer (Gmail SMTP) — OTP delivery |
+| **PDF Export** | jsPDF 4.x |
+| **PDF Analysis** | pdf-parse 2 + pdfjs-dist 5 + canvas npm |
+| **Deployment** | Vercel (recommended) / any Node.js host |
+
+---
+
+## 🔐 Authentication System
+
+### Dual-provider auth with zero friction
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         USER BROWSER                            │
-└──────────────────┬──────────────────────────────────────────────┘
-                   │
-         ┌─────────▼──────────┐
-         │  /auth/register     │  Enter name + email
-         │  /auth/login        │  Enter email only
-         └─────────┬──────────┘
-                   │  POST /api/send-otp
-                   │  (creates User if new, saves OTP to MongoDB)
-                   ▼
-         ┌─────────────────────┐
-         │  Gmail → 6-digit    │  Nodemailer delivers OTP
-         │  OTP email          │  (expires in 10 minutes)
-         └─────────┬───────────┘
-                   │
-                   ▼
-         ┌─────────────────────┐
-         │  /auth/verify-otp   │  User enters 6-digit code
-         │                     │  signIn("otp", { email, otp })
-         └─────────┬───────────┘
-                   │  NextAuth Credentials provider
-                   │  authorize() → validates OTP → marks used
-                   │  NextAuth sets session cookie (JWT)
-                   ▼
-         ┌─────────────────────┐
-         │  /dashboard         │  Auth guard checks session
-         │                     │  status === "authenticated"
-         └─────────┬───────────┘
-                   │  window.location.href (instant, no delay)
-                   ▼
-         ┌─────────────────────┐
-         │  Streamlit App      │  ?name=<encoded_user_name>
-         │  (AI Mentor)        │
-         └─────────────────────┘
+User visits /auth/login
+    │
+    ├─► Google OAuth 2.0 ──► NextAuth callback ──► /dashboard
+    │
+    └─► Email OTP
+            │
+            ├─ Enter email → 6-digit OTP sent via Gmail SMTP
+            ├─ OTP: single-use, 10-min expiry, server-side verified
+            └─ Verified → /dashboard
+```
 
-         ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+**Security hardening:**
+- `__Secure-` prefixed cookies in production (`httpOnly`, `SameSite=lax`, `secure`)
+- Edge middleware blocks all `/dashboard/*` routes without a valid session
+- `PATCH /api/user/profile` silently ignores any `email` field — name & email are **permanently read-only** after registration
+- OTP replay protection: each token marked `used: true` the moment it's consumed
+- `NEXTAUTH_SECRET` + `GOOGLE_CLIENT_SECRET` accessed only via `process.env` — zero hardcoded secrets
 
-         Google OAuth Path:
-         /auth/login → signIn("google") → Google → /dashboard → Streamlit
+### Google OAuth production URIs
+```
+Authorized JavaScript origins:   https://your-domain.com
+Authorized redirect URI:          https://your-domain.com/api/auth/callback/google
 ```
 
 ---
 
-## 📁 Project Structure
+## 💰 Credit Economy
+
+| Action | Cost |
+|--------|------|
+| Welcome bonus | **40,000 credits** |
+| Chat message (any model) | 1 credit |
+| Code / SQL generation | 6 credits |
+| Image generation | 12 credits |
+| Daily image limit (free tier) | 3 images / 24 hours |
+
+- Optimistic client-side deduction updates all mounted components instantly via a custom `window` event bus — no network round-trip needed for UI updates
+- Server-side credit check runs independently; 403 response triggers a subscription redirect
+- Credits = 0 → `ChatInput` replaced with a "Credits Exhausted — Upgrade to Pro" button that routes to the Subscription tab
+
+---
+
+## 🤖 Active AI Models
+
+| Nexus ID | Underlying Model | Speciality |
+|----------|-----------------|------------|
+| **Nexus Pro** | `llama-3.3-70b-versatile` | Balanced, general-purpose |
+| **Nexus Fast** | `llama-3.1-8b-instant` | Lightning speed, quick answers |
+| **Nexus Coder** | `llama-3.3-70b-versatile` | Code-optimised system prompt |
+| **Nexus Vision** | `llama-3.2-11b-vision-preview` | Document & image analysis |
+
+> All models served via Groq's LPU infrastructure for sub-second first-token latency.
+
+---
+
+## ✨ Zero-Vibration UI — Technical Deep Dive
+
+Traditional streaming UIs suffer from layout shifts: a "Thinking" indicator unmounts while the response bubble mounts, causing a visible jump. AI Nexus eliminates this with a **unified container architecture**:
 
 ```
-├── app/
-│   ├── api/
-│   │   ├── auth/[...nextauth]/   # NextAuth handler
-│   │   ├── send-otp/             # Generate & email OTP
-│   │   └── verify-otp/           # Validate OTP (pre-check)
-│   ├── auth/
-│   │   ├── login/                # Email-only login page
-│   │   ├── register/             # Name + email register page
-│   │   └── verify-otp/           # 6-digit OTP entry page
-│   ├── dashboard/                # Auth-guarded redirect page
-│   └── globals.css               # Cyber-glass Tailwind utilities
-├── components/
-│   ├── AuthCard.tsx              # Glassmorphic card wrapper
-│   ├── CyberBackground.tsx       # Animated grid + neon glows
-│   ├── CyberInput.tsx            # Styled input component
-│   ├── PageHeader.tsx            # AI Mentor title + tagline
-│   └── SessionProvider.tsx       # NextAuth session context
-├── lib/
-│   ├── auth.ts                   # Full NextAuth config + Credentials provider
-│   ├── mailer.ts                 # Nodemailer OTP email sender
-│   └── prisma.ts                 # Prisma client singleton
-├── prisma/
-│   └── schema.prisma             # MongoDB schema
-├── auth.config.ts                # Edge-safe NextAuth config (middleware)
-└── middleware.ts                 # Route protection at the edge
+Timeline:
+  t=0ms   → User sends message
+            → AI bubble immediately created: { content: "", isStreaming: true }
+            → InlineThinking waveform renders INSIDE the bubble (same DOM node)
+  t=~50ms → Groq returns first token
+            → content becomes truthy → InlineThinking hides instantly
+            → motion.div fades in (opacity 0→1, 220ms) — same container, zero shift
+  t=ongoing → Tokens stream into the same stable div
+            → .nexus-streaming CSS class appends blinking ▊ cursor via ::after
+  t=done  → isStreaming: false → cursor removed → action bar fades in
+```
+
+Key CSS rules:
+```css
+/* Stable container */
+.ai-bubble { min-height: 3.5rem; contain: layout; will-change: contents; }
+
+/* Blinking cursor during streaming */
+.nexus-streaming > :last-child::after {
+  content: ' ▊';
+  animation: nexus-cursor-blink 1s infinite;
+  color: #00f2ff;
+}
+
+/* Stop browser scroll-anchor fighting React */
+.overflow-y-auto { overflow-anchor: none !important; }
 ```
 
 ---
 
-## ⚙️ Environment Variables
+## ⚙️ Local Development Setup
 
-Create a `.env.local` file in the root with the following keys:
+### Prerequisites
+- Node.js 20+
+- MongoDB Atlas account (free tier works)
+- Groq API key ([console.groq.com](https://console.groq.com))
+- Google Cloud project with OAuth 2.0 credentials
 
-```env
-# ── Database ─────────────────────────────────────────────────────────
-DATABASE_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<db>"
-
-# ── NextAuth ──────────────────────────────────────────────────────────
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="<generate: openssl rand -base64 32>"
-
-# ── Google OAuth ─────────────────────────────────────────────────────
-GOOGLE_CLIENT_ID="<your-google-client-id>"
-GOOGLE_CLIENT_SECRET="<your-google-client-secret>"
-
-# ── Nodemailer (Gmail App Password) ───────────────────────────────────
-NODEMAILER_EMAIL="your-email@gmail.com"
-NODEMAILER_PASSWORD="xxxx xxxx xxxx xxxx"
-
-# ── Streamlit Redirect ───────────────────────────────────────────────
-STREAMLIT_APP_URL="https://your-app.streamlit.app"
-NEXT_PUBLIC_STREAMLIT_APP_URL="https://your-app.streamlit.app"
-```
-
-> `.env.local` is in `.gitignore` — your secrets are never committed.
-
----
-
-## 🚀 Local Development
-
+### 1. Clone & install
 ```bash
-# 1. Clone
-git clone https://github.com/Shafiqdeveloper786/ai-mentor-gateway.git
-cd ai-mentor-gateway
-
-# 2. Install
+git clone https://github.com/Shafiqdeveloper786/AI-Nexus.git
+cd AI-Nexus
 npm install
+```
 
-# 3. Push schema to MongoDB
-npx prisma db push
+### 2. Configure environment
+```bash
+cp .env.production.template .env.local
+# Fill in all values in .env.local
+```
 
-# 4. Add environment variables
-# Create .env.local and fill in the keys above
+Required variables:
+```env
+# Auth
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=any-random-32-char-string
 
-# 5. Run
+# Google OAuth
+GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+
+# Databases
+DATABASE_URL=mongodb+srv://user:pass@cluster.mongodb.net/ai_nexus_auth
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/ai_nexus
+
+# AI
+GROQ_API_KEY=gsk_xxxx
+HF_TOKEN=hf_xxxx
+
+# Email
+NODEMAILER_EMAIL=you@gmail.com
+NODEMAILER_PASSWORD=your-gmail-app-password
+```
+
+### 3. Generate Prisma client & run
+```bash
+npx prisma generate
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) — redirects to the Register page.
+Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## ☁️ Deployment (Vercel)
+## 🗂️ Project Structure
 
-1. Push this repo to GitHub.
-2. Import at [vercel.com/new](https://vercel.com/new).
-3. Add all `.env.local` keys in **Vercel → Settings → Environment Variables**.
-4. Set `NEXTAUTH_URL` to your production domain.
-5. Add to **Google Cloud Console → Authorized Redirect URIs**:
-   ```
-   https://<your-domain>/api/auth/callback/google
-   ```
-6. Deploy — `npm run build` runs automatically.
-
-> `__Secure-` prefixed cookies are applied automatically on HTTPS — no extra config needed.
+```
+AI-Nexus/
+├── app/
+│   ├── api/
+│   │   ├── analyze-file/      # PDF & image vision analysis
+│   │   ├── chat/              # Groq streaming with no-code filter
+│   │   ├── generate-image/    # HF + Pollinations cascade
+│   │   ├── generate-code/     # Code & SQL generation
+│   │   ├── generate-resume/   # AI resume builder
+│   │   ├── history/           # Unified chat + asset history
+│   │   ├── library/           # Image asset library
+│   │   ├── send-otp/          # OTP email dispatch
+│   │   ├── verify-otp/        # OTP server verification
+│   │   └── user/              # Profile CRUD + export + delete
+│   ├── auth/                  # Login, Register, Verify-OTP pages
+│   ├── dashboard/             # Main dashboard page (SSR)
+│   └── globals.css            # Cyber-glass theme + streaming CSS
+├── components/
+│   └── dashboard/
+│       ├── ChatArea.tsx        # Smart scroll + streaming orchestrator
+│       ├── FluidMessage.tsx    # Zero-vibration message component
+│       ├── ImageStudio.tsx     # Image generation UI
+│       ├── Sidebar.tsx         # Unified history + image library
+│       ├── ProfileModal.tsx    # Read-only name/email + data export
+│       ├── ResumeBuilder.tsx   # AI resume + PDF export
+│       └── ...                 # 12 more components
+├── hooks/
+│   ├── useChatHistory.ts      # Unified history with kind-based routing
+│   └── useUserProfile.ts      # Cross-instance credit sync via events
+├── lib/
+│   ├── auth.ts                # NextAuth full config
+│   ├── auth.config.ts         # Edge-safe config (middleware)
+│   ├── credits.ts             # Single source of truth for costs
+│   ├── db.ts                  # Mongoose connection with DNS fallback
+│   ├── models/                # UserProfile, Chat, Asset schemas
+│   └── session.ts             # Server-side session helper
+├── auth.config.ts             # Edge middleware auth
+├── middleware.ts              # Route protection
+├── next.config.ts             # Security headers + image optimization
+└── .env.production.template   # Full env reference (no real secrets)
+```
 
 ---
 
-## 🗃️ Database Collections (MongoDB via Prisma)
+## 🚀 Deployment (Vercel — Recommended)
 
-| Collection | Purpose |
-|---|---|
-| `User` | Name, email, image, emailVerified |
-| `Account` | OAuth provider links (Google) |
-| `OtpToken` | Active codes — single-use, 10-min expiry |
-| `VerificationToken` | NextAuth email tokens |
-
----
-
-## 📬 Google Cloud Console Setup
-
-1. [console.cloud.google.com](https://console.cloud.google.com) → **APIs & Services** → **Credentials** → **OAuth 2.0 Client ID**
-2. **Authorized JavaScript Origins**: `http://localhost:3000` + your production domain
-3. **Authorized Redirect URIs**:
-   - `http://localhost:3000/api/auth/callback/google`
-   - `https://<your-domain>/api/auth/callback/google`
+1. Push to GitHub (already done)
+2. Import repo at [vercel.com/new](https://vercel.com/new)
+3. Set all env variables from `.env.production.template` in Vercel dashboard
+4. Add production domain to Google OAuth:
+   - Authorized origins: `https://your-project.vercel.app`
+   - Redirect URI: `https://your-project.vercel.app/api/auth/callback/google`
+5. Deploy — Vercel auto-detects Next.js
 
 ---
 
-## 👤 Developer
+## 🛡️ Security Checklist
 
-**Muhammad Shafiq Chohan**
-
-> *"Built with precision, secured with care."*
-
-[![GitHub](https://img.shields.io/badge/GitHub-Shafiqdeveloper786-181717?style=flat-square&logo=github)](https://github.com/Shafiqdeveloper786)
+- [x] `.env.local` and `.env.production` are gitignored — secrets never committed
+- [x] `poweredByHeader: false` — Next.js version not exposed
+- [x] Security headers on every route (X-Frame-Options: DENY, X-Content-Type-Options: nosniff, XSS-Protection)
+- [x] OTP tokens: single-use, 10-minute expiry
+- [x] Profile fields (name, email) permanently read-only via both UI and API
+- [x] Credentials provider only accepts valid, unexpired, unused OTP tokens
+- [x] Google OAuth callback URL strictly validated by NextAuth
 
 ---
 
 ## 📄 License
 
-Private & proprietary. All rights reserved © 2026 Muhammad Shafiq Chohan.
+MIT © 2025 [Shafiq Developer](https://github.com/Shafiqdeveloper786)
+
+---
+
+<div align="center">
+
+**Built with ⚡ by Shafiq · Powered by Groq LPU · Secured by Auth.js v5**
+
+*If this project helped you, consider giving it a ⭐ on GitHub*
+
+</div>

@@ -18,9 +18,9 @@ const rajdhani = Rajdhani({
 });
 
 export const metadata: Metadata = {
-  title: "AI Mentor | Quantum Knowledge Core",
-  description: "AI Mentor — Quantum Knowledge Core v4.0.2. Created by Shafiq Chohan.",
-  keywords: ["AI Mentor", "Quantum Knowledge", "Machine Learning", "Education"],
+  title: "AI Nexus | Quantum Knowledge Core",
+  description: "AI Nexus — Quantum Knowledge Core v4.0.2. Created by Shafiq Chohan.",
+  keywords: ["AI Nexus", "Quantum Knowledge", "Machine Learning", "AI Platform"],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

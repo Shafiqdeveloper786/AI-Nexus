@@ -1,16 +1,38 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Force webpack to transpile next-auth — fixes __webpack_modules__ ESM/CJS conflict in Next.js 15.5+
+  /* ── ESM/CJS compatibility ─────────────────────────────────────────────── */
   transpilePackages: ["next-auth", "@auth/core"],
 
-  // Keep nodemailer as a Node.js external (pure ESM — cannot be bundled by webpack)
-  serverExternalPackages: ["nodemailer"],
+  /* ── Native Node.js modules — must NOT be bundled by webpack ──────────── */
+  serverExternalPackages: ["nodemailer", "canvas", "pdf-parse", "pdfjs-dist"],
 
+  /* ── Production hardening ─────────────────────────────────────────────── */
+  poweredByHeader: false,   // don't expose "X-Powered-By: Next.js"
+  compress:        true,    // gzip/brotli all responses
+
+  /* ── Image optimisation ────────────────────────────────────────────────── */
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "lh3.googleusercontent.com" }, // Google profile photos
     ],
+    formats: ["image/avif", "image/webp"],
+  },
+
+  /* ── Security headers (applied to every route) ─────────────────────────── */
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Content-Type-Options",    value: "nosniff"          },
+          { key: "X-Frame-Options",            value: "DENY"             },
+          { key: "X-XSS-Protection",           value: "1; mode=block"    },
+          { key: "Referrer-Policy",            value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy",         value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+    ];
   },
 };
 

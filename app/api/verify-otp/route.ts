@@ -33,9 +33,9 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    // Return user info so the frontend can pass the name to the dashboard URL
     return NextResponse.json({
       success: true,
+      redirectTo: "/dashboard",
       user: { id: user?.id, name: user?.name, email: user?.email },
     });
   } catch (err) {

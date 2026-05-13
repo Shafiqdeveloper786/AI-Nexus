@@ -11,12 +11,15 @@
 /build
 /dist
 
-# Environment
+# Environment — never commit secrets
 .env
 .env.local
+.env.production
 .env.development.local
 .env.test.local
 .env.production.local
+# Template is safe to commit (contains no real secrets)
+# !.env.production.template
 
 # Misc
 .DS_Store

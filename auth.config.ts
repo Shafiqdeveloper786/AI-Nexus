@@ -30,7 +30,10 @@ export const authConfig = {
       }
 
       // Authenticated user → any /auth/* page: bounce to dashboard
-      if (isLoggedIn && isAuthPage) {
+      // Exception: /auth/verify-otp — let the page complete its own
+      // session-sync + window.location.href redirect uninterrupted.
+      const isVerifyOtp = path === "/auth/verify-otp";
+      if (isLoggedIn && isAuthPage && !isVerifyOtp) {
         return Response.redirect(new URL("/dashboard", nextUrl));
       }
 

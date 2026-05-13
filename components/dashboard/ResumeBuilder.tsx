@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Wand2, Copy, Check, Download, AlertTriangle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown } from "lucide-react";
+import {
+  FileText, Wand2, Copy, Check, Download, AlertTriangle,
+  User, Briefcase, GraduationCap, Zap, ThumbsUp, ThumbsDown,
+} from "lucide-react";
 import { pushNotif } from "@/lib/notifications";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -12,63 +15,128 @@ import LimitReachedModal from "./LimitReachedModal";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { CREDITS } from "@/lib/credits";
 
-/* ── Markdown styling for the resume preview ──────────────────────────────── */
-const resumeMd: React.ComponentProps<typeof ReactMarkdown>["components"] = {
-  h1: ({ children }) => (
-    <h1 className="font-['Orbitron'] font-black text-lg text-white tracking-wide mt-0 mb-1"
-      style={{ textShadow: "0 0 14px rgba(0,212,255,0.3)" }}>
-      {children}
-    </h1>
-  ),
-  h2: ({ children }) => (
-    <h2 className="font-['Orbitron'] font-bold text-sm mt-4 mb-1 pb-1"
-      style={{ color: "#00d4ff", borderBottom: "1px solid rgba(0,212,255,0.25)" }}>
-      {children}
-    </h2>
-  ),
-  h3: ({ children }) => (
-    <h3 className="font-['Rajdhani'] font-bold text-sm mt-2.5 mb-0.5" style={{ color: "rgba(226,232,240,0.95)" }}>
-      {children}
-    </h3>
-  ),
-  p: ({ children }) => (
-    <p className="font-['Rajdhani'] text-sm mb-1.5 leading-relaxed" style={{ color: "rgba(226,232,240,0.78)" }}>
-      {children}
-    </p>
-  ),
-  ul: ({ children }) => <ul className="space-y-0.5 mb-2" style={{ listStyle: "none" }}>{children}</ul>,
-  li: ({ children }) => (
-    <li className="flex items-start gap-2 text-sm font-['Rajdhani']" style={{ color: "rgba(226,232,240,0.78)" }}>
-      <span className="mt-2 flex-shrink-0 rounded-full" style={{ width: "4px", height: "4px", background: "#00d4ff" }} />
-      <span>{children}</span>
-    </li>
-  ),
-  strong: ({ children }) => <strong style={{ color: "white", fontWeight: 700 }}>{children}</strong>,
-  hr: () => <hr className="my-3" style={{ borderColor: "rgba(0,212,255,0.18)" }} />,
-};
+/* ── Professional PDF export — fixed A4 layout, no clipping ─────────────── */
+async function exportResumePDF(markdownContent: string, fullName: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jspdfMod: any = await import("jspdf");
+  const JsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
+  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-const FIELD_STYLES = {
-  input: {
-    base: "w-full px-4 py-2.5 rounded-xl text-sm font-['Rajdhani'] outline-none transition-all",
-    style: {
-      background: "rgba(3,11,26,0.85)",
-      border:     "1px solid rgba(0,212,255,0.15)",
-      color:      "rgba(226,232,240,0.9)",
-      caretColor: "#00d4ff",
-    } as React.CSSProperties,
-  },
-  textarea: (rows = 4) => ({
-    rows,
-    className: "w-full px-4 py-3 rounded-xl text-sm font-['Rajdhani'] resize-none outline-none transition-all",
-    style: {
-      background: "rgba(3,11,26,0.85)",
-      border:     "1px solid rgba(0,212,255,0.15)",
-      color:      "rgba(226,232,240,0.9)",
-      caretColor: "#00d4ff",
-    } as React.CSSProperties,
-  }),
-};
+  const PW = 210, PH = 297;
+  const ML = 18, MR = 18, MT = 24, MB = 22;
+  const CW = PW - ML - MR;
 
+  let y = MT;
+
+  const newPage = () => { doc.addPage(); y = MT; };
+
+  const drawLines = (
+    text: string,
+    fontSize: number,
+    fontStyle: "normal" | "bold",
+    rgb: [number, number, number],
+    indent = 0,
+    extraGap = 0,
+  ) => {
+    doc.setFontSize(fontSize);
+    doc.setFont("helvetica", fontStyle);
+    doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+    const lh = fontSize * 0.3528 * 1.28;
+    const wrapped = doc.splitTextToSize(text, CW - indent);
+    for (const wLine of wrapped) {
+      if (y + lh > PH - MB) newPage();
+      doc.text(wLine, ML + indent, y);
+      y += lh;
+    }
+    y += extraGap;
+  };
+
+  const clean = (s: string) =>
+    s.replace(/\*\*(.+?)\*\*/g, "$1")
+     .replace(/\*(.+?)\*/g, "$1")
+     .replace(/`(.+?)`/g, "$1")
+     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+  for (const raw of markdownContent.split("\n")) {
+    const line = raw.trim();
+
+    if (line.startsWith("# ")) {
+      if (y > MT + 2) y += 2;
+      if (y + 12 > PH - MB) newPage();
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(10, 36, 99);
+      doc.text(line.slice(2), ML, y);
+      y += 10;
+
+    } else if (line.startsWith("## ")) {
+      y += 4;
+      if (y + 10 > PH - MB) newPage();
+      doc.setFontSize(10.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(79, 70, 229);
+      doc.text(line.slice(3).toUpperCase(), ML, y);
+      y += 1.5;
+      if (y + 1 > PH - MB) newPage();
+      doc.setDrawColor(79, 70, 229);
+      doc.setLineWidth(0.35);
+      doc.line(ML, y + 1, PW - MR, y + 1);
+      y += 5.5;
+
+    } else if (line.startsWith("### ")) {
+      y += 1;
+      drawLines(clean(line.slice(4)), 10, "bold", [30, 41, 59], 0, 1);
+
+    } else if (line.startsWith("- ") || line.startsWith("• ")) {
+      const txt = clean(line.replace(/^[-•]\s/, ""));
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(55, 65, 80);
+      const lh = 9.5 * 0.3528 * 1.28;
+      const wrapped = doc.splitTextToSize(txt, CW - 6);
+      for (let i = 0; i < wrapped.length; i++) {
+        if (y + lh > PH - MB) newPage();
+        if (i === 0) {
+          doc.setFillColor(79, 70, 229);
+          doc.circle(ML + 1.8, y - 1.4, 0.75, "F");
+        }
+        doc.text(wrapped[i], ML + 5, y);
+        y += lh;
+      }
+      y += 0.5;
+
+    } else if (line.match(/^---+$/) || line.match(/^___+$/)) {
+      y += 2;
+      if (y + 2 > PH - MB) newPage();
+      doc.setDrawColor(200, 212, 225);
+      doc.setLineWidth(0.25);
+      doc.line(ML, y, PW - MR, y);
+      y += 3;
+
+    } else if (line.length > 0) {
+      drawLines(clean(line), 9.5, "normal", [55, 65, 80], 0, 1);
+    } else {
+      y += 2;
+    }
+  }
+
+  const total = doc.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `Generated by AI Nexus  ·  Page ${p} of ${total}`,
+      PW / 2, PH - 10,
+      { align: "center" }
+    );
+  }
+
+  doc.save(`${fullName.replace(/\s+/g, "_") || "resume"}.pdf`);
+}
+
+/* ── Types ───────────────────────────────────────────────────────────────── */
 interface FormData {
   fullName:   string;
   jobTitle:   string;
@@ -86,173 +154,122 @@ const EMPTY: FormData = {
   summary: "", experience: "", skills: "", education: "",
 };
 
-/* ── Professional PDF export — fixed A4 layout, no clipping ─────────────── */
-async function exportResumePDF(markdownContent: string, fullName: string) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const jspdfMod: any = await import("jspdf");
-  const JsPDF = jspdfMod.jsPDF ?? jspdfMod.default;
-  const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+const TABS = [
+  { id: "personal",   label: "Personal",   icon: User },
+  { id: "experience", label: "Experience", icon: Briefcase },
+  { id: "education",  label: "Education",  icon: GraduationCap },
+  { id: "skills",     label: "Skills",     icon: Zap },
+] as const;
 
-  const PW = 210, PH = 297;
-  const ML = 18, MR = 18, MT = 24, MB = 22;
-  const CW = PW - ML - MR;   // usable content width = 174 mm
+type TabId = typeof TABS[number]["id"];
 
-  let y = MT;
+/* ── Preview markdown — paper/light styling ──────────────────────────────── */
+const previewMd: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  h1: ({ children }) => (
+    <h1 style={{ fontFamily: "'Inter', sans-serif" }}
+      className="text-xl font-bold text-slate-800 pb-2 mb-2 border-b-2 border-indigo-200">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 style={{ fontFamily: "'Inter', sans-serif" }}
+      className="text-[11px] font-bold text-indigo-600 uppercase tracking-widest mt-5 mb-2 pb-1 border-b border-indigo-100">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 style={{ fontFamily: "'Inter', sans-serif" }}
+      className="text-sm font-semibold text-slate-700 mt-3 mb-0.5">
+      {children}
+    </h3>
+  ),
+  p: ({ children }) => (
+    <p style={{ fontFamily: "'Inter', sans-serif" }}
+      className="text-sm text-slate-600 mb-2 leading-relaxed">
+      {children}
+    </p>
+  ),
+  ul: ({ children }) => <ul className="space-y-1 mb-3">{children}</ul>,
+  li: ({ children }) => (
+    <li style={{ fontFamily: "'Inter', sans-serif" }}
+      className="flex items-start gap-2 text-sm text-slate-600">
+      <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
+      <span>{children}</span>
+    </li>
+  ),
+  strong: ({ children }) => (
+    <strong style={{ fontFamily: "'Inter', sans-serif" }} className="font-semibold text-slate-800">
+      {children}
+    </strong>
+  ),
+  hr: () => <hr className="my-3 border-slate-200" />,
+};
 
-  /* ── Helpers ────────────────────────────────────────── */
-  const newPage = () => { doc.addPage(); y = MT; };
+/* ── Live preview builder from raw form data ─────────────────────────────── */
+function buildPreviewMarkdown(form: FormData): string {
+  const lines: string[] = [];
 
-  /* Draw each wrapped line individually so we can paginate between them */
-  const drawLines = (
-    text: string,
-    fontSize: number,
-    fontStyle: "normal" | "bold",
-    rgb: [number,number,number],
-    indent = 0,
-    extraGap = 0,
-  ) => {
-    doc.setFontSize(fontSize);
-    doc.setFont("helvetica", fontStyle);
-    doc.setTextColor(rgb[0], rgb[1], rgb[2]);
-    /* Line height: point → mm × leading factor */
-    const lh = fontSize * 0.3528 * 1.28;
-    const wrapped = doc.splitTextToSize(text, CW - indent);
-    for (const wLine of wrapped) {
-      if (y + lh > PH - MB) newPage();
-      doc.text(wLine, ML + indent, y);
-      y += lh;
-    }
-    y += extraGap;
-  };
+  if (form.fullName)  lines.push(`# ${form.fullName}`);
+  if (form.jobTitle)  lines.push(`**${form.jobTitle}**`);
 
-  /* ── Render markdown ────────────────────────────────── */
-  const clean = (s: string) =>
-    s.replace(/\*\*(.+?)\*\*/g, "$1")
-     .replace(/\*(.+?)\*/g, "$1")
-     .replace(/`(.+?)`/g, "$1")
-     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  const contact = [form.email, form.phone, form.linkedin].filter(Boolean).join("  ·  ");
+  if (contact) lines.push(contact);
 
-  for (const raw of markdownContent.split("\n")) {
-    const line = raw.trim();
+  if (form.summary)    { lines.push("", "## Summary",    form.summary); }
+  if (form.experience) { lines.push("", "## Experience", form.experience); }
+  if (form.education)  { lines.push("", "## Education",  form.education); }
+  if (form.skills)     { lines.push("", "## Skills",     form.skills); }
 
-    if (line.startsWith("# ")) {
-      /* Name — large header */
-      if (y > MT + 2) y += 2;
-      if (y + 12 > PH - MB) newPage();
-      doc.setFontSize(22);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(10, 36, 99);
-      doc.text(line.slice(2), ML, y);
-      y += 10;
-
-    } else if (line.startsWith("## ")) {
-      /* Section header + rule */
-      y += 4;
-      if (y + 10 > PH - MB) newPage();
-      doc.setFontSize(10.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(37, 99, 235);
-      doc.text(line.slice(3).toUpperCase(), ML, y);
-      y += 1.5;
-      if (y + 1 > PH - MB) newPage();
-      doc.setDrawColor(37, 99, 235);
-      doc.setLineWidth(0.35);
-      doc.line(ML, y + 1, PW - MR, y + 1);
-      y += 5.5;
-
-    } else if (line.startsWith("### ")) {
-      /* Role / company */
-      y += 1;
-      drawLines(clean(line.slice(4)), 10, "bold", [30, 41, 59], 0, 1);
-
-    } else if (line.startsWith("- ") || line.startsWith("• ")) {
-      /* Bullet point */
-      const txt = clean(line.replace(/^[-•]\s/, ""));
-      doc.setFontSize(9.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(55, 65, 80);
-      const lh = 9.5 * 0.3528 * 1.28;
-      const wrapped = doc.splitTextToSize(txt, CW - 6);
-      for (let i = 0; i < wrapped.length; i++) {
-        if (y + lh > PH - MB) newPage();
-        if (i === 0) {
-          /* Draw filled circle bullet */
-          doc.setFillColor(37, 99, 235);
-          doc.circle(ML + 1.8, y - 1.4, 0.75, "F");
-        }
-        doc.text(wrapped[i], ML + 5, y);
-        y += lh;
-      }
-      y += 0.5;
-
-    } else if (line.match(/^---+$/) || line.match(/^___+$/)) {
-      /* Horizontal rule */
-      y += 2;
-      if (y + 2 > PH - MB) newPage();
-      doc.setDrawColor(200, 212, 225);
-      doc.setLineWidth(0.25);
-      doc.line(ML, y, PW - MR, y);
-      y += 3;
-
-    } else if (line.length > 0) {
-      /* Regular paragraph — handles long contact-info lines correctly */
-      drawLines(clean(line), 9.5, "normal", [55, 65, 80], 0, 1);
-
-    } else {
-      /* Empty line — small gap */
-      y += 2;
-    }
-  }
-
-  /* ── Page footer ─────────────────────────────────────── */
-  const total = doc.getNumberOfPages();
-  for (let p = 1; p <= total; p++) {
-    doc.setPage(p);
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(148, 163, 184);
-    doc.text(
-      `Generated by AI Nexus  ·  Page ${p} of ${total}`,
-      PW / 2, PH - 10,
-      { align: "center" }
-    );
-  }
-
-  doc.save(`${fullName.replace(/\s+/g, "_") || "resume"}.pdf`);
+  return lines.join("\n");
 }
 
+/* ── Input styles ─────────────────────────────────────────────────────────── */
+const INPUT_CLS  = "w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200 bg-white text-slate-800 placeholder-slate-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50 transition-all";
+const TA_CLS     = "w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-200 bg-white text-slate-800 placeholder-slate-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50 transition-all resize-none";
+const LABEL_CLS  = "block text-xs font-medium text-slate-500 mb-1.5";
+
+/* ════════════════════════════════════════════════════════════════════════════ */
 export default function ResumeBuilder({ onOpenSubscription }: { onOpenSubscription?: () => void }) {
-  const [form,        setForm]        = useState<FormData>(EMPTY);
-  const [loading,     setLoading]     = useState(false);
-  const [resume,      setResume]      = useState("");
-  const [error,       setError]       = useState<string | null>(null);
-  const [copied,      setCopied]      = useState(false);
-  const [pdfLoading,  setPdfLoading]  = useState(false);
+  const [form,         setForm]         = useState<FormData>(EMPTY);
+  const [loading,      setLoading]      = useState(false);
+  const [resume,       setResume]       = useState("");
+  const [error,        setError]        = useState<string | null>(null);
+  const [copied,       setCopied]       = useState(false);
+  const [pdfLoading,   setPdfLoading]   = useState(false);
   const [noCreditsOpen, setNoCreditsOpen] = useState(false);
-  const [limitOpen,     setLimitOpen]     = useState(false);
-  const [limitHours,    setLimitHours]    = useState(24);
-  const [limitUsed,     setLimitUsed]     = useState(3);
-  const [formOpen,    setFormOpen]    = useState(true);
-  const [toast,       setToast]       = useState<string | null>(null);
-  const [mounted,     setMounted]     = useState(false);
+  const [limitOpen,    setLimitOpen]    = useState(false);
+  const [limitHours,   setLimitHours]   = useState(24);
+  const [limitUsed,    setLimitUsed]    = useState(3);
+  const [toast,        setToast]        = useState<string | null>(null);
+  const [mounted,      setMounted]      = useState(false);
+  const [activeTab,    setActiveTab]    = useState<TabId>("personal");
+  const [mobilePanel,  setMobilePanel]  = useState<"edit" | "preview">("edit");
+  const prevTabIdx = useRef(0);
+
   const { profile, refetch: refetchProfile } = useUserProfile();
 
   useEffect(() => { setMounted(true); }, []);
 
-  const showToast = (text: string) => { setToast(text); setTimeout(() => setToast(null), 3500); };
+  const showToast = (text: string) => {
+    setToast(text);
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const set = (key: keyof FormData) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const handleTabChange = (id: TabId) => {
+    prevTabIdx.current = TABS.findIndex(t => t.id === activeTab);
+    setActiveTab(id);
+  };
+
   const handleGenerate = async () => {
     if (!form.fullName.trim() || !form.experience.trim() || loading) return;
-
-    /* Resume uses daily limits — no credit deduction */
     setLoading(true);
     setError(null);
     setResume("");
-    setFormOpen(false);
+    setMobilePanel("preview");
 
     try {
       const res = await fetch("/api/generate-resume", {
@@ -274,14 +291,12 @@ export default function ResumeBuilder({ onOpenSubscription }: { onOpenSubscripti
         pushNotif({ title: "Daily Resume Limit Reached", sub: `${CREDITS.DAILY_RESUME_LIMIT} resumes/day — resets in ${d.resetInHours ?? 24}h`, type: "warning" });
         return;
       }
-
       if (!res.ok || !res.body) {
         const d = await res.json().catch(() => ({}));
         setError(d.message ?? d.error ?? `Error ${res.status}`);
         return;
       }
 
-      /* Stream the resume token-by-token */
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let   buf     = "";
@@ -333,10 +348,137 @@ export default function ResumeBuilder({ onOpenSubscription }: { onOpenSubscripti
     }
   };
 
-  const fieldLabel = (text: string) => (
-    <label className="block text-[9px] font-['Orbitron'] tracking-widest text-[rgba(148,163,184,0.45)] mb-1.5 uppercase">
-      {text}
-    </label>
+  const displayContent = resume || buildPreviewMarkdown(form);
+  const canGenerate    = !!form.fullName.trim() && !!form.experience.trim() && !loading;
+
+  /* ── Tab content per panel ─────────────────────────────────────────────── */
+  const tabVariants = {
+    enter:  { opacity: 0, y: 8 },
+    center: { opacity: 1, y: 0 },
+    exit:   { opacity: 0, y: -8 },
+  };
+
+  const renderTabContent = () => (
+    <AnimatePresence mode="wait">
+      {activeTab === "personal" && (
+        <motion.div key="personal"
+          variants={tabVariants} initial="enter" animate="center" exit="exit"
+          transition={{ duration: 0.18 }}
+          className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={LABEL_CLS}>Full Name <span className="text-red-400">*</span></label>
+              <input className={INPUT_CLS} value={form.fullName} onChange={set("fullName")} placeholder="Jane Doe" />
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Job Title</label>
+              <input className={INPUT_CLS} value={form.jobTitle} onChange={set("jobTitle")} placeholder="Senior Engineer" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={LABEL_CLS}>Email</label>
+              <input className={INPUT_CLS} type="email" value={form.email} onChange={set("email")} placeholder="jane@example.com" />
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Phone</label>
+              <input className={INPUT_CLS} value={form.phone} onChange={set("phone")} placeholder="+1 555-0100" />
+            </div>
+          </div>
+          <div>
+            <label className={LABEL_CLS}>LinkedIn / Portfolio</label>
+            <input className={INPUT_CLS} value={form.linkedin} onChange={set("linkedin")} placeholder="linkedin.com/in/janedoe" />
+          </div>
+          <div>
+            <label className={LABEL_CLS}>Professional Summary</label>
+            <textarea className={TA_CLS} rows={4} value={form.summary} onChange={set("summary")}
+              placeholder="Results-driven engineer with 6 years of experience building scalable SaaS products…" />
+          </div>
+        </motion.div>
+      )}
+
+      {activeTab === "experience" && (
+        <motion.div key="experience"
+          variants={tabVariants} initial="enter" animate="center" exit="exit"
+          transition={{ duration: 0.18 }}
+          className="space-y-4">
+          <div>
+            <label className={LABEL_CLS}>Work Experience <span className="text-red-400">*</span></label>
+            <p className="text-xs text-slate-400 mb-2">Each role on a new line. Use bullet points (•) for achievements.</p>
+            <textarea className={TA_CLS} rows={12} value={form.experience} onChange={set("experience")}
+              placeholder={"Senior Engineer @ Acme Corp (2021–Present)\n• Led migration to microservices, reducing latency by 40%\n• Mentored 3 junior developers\n\nEngineer @ StartupXYZ (2019–2021)\n• Built React dashboard used by 10K users"} />
+          </div>
+        </motion.div>
+      )}
+
+      {activeTab === "education" && (
+        <motion.div key="education"
+          variants={tabVariants} initial="enter" animate="center" exit="exit"
+          transition={{ duration: 0.18 }}
+          className="space-y-4">
+          <div>
+            <label className={LABEL_CLS}>Education</label>
+            <textarea className={TA_CLS} rows={6} value={form.education} onChange={set("education")}
+              placeholder={"B.Sc. Computer Science · MIT · 2019\nGPA 3.8 · Dean's List 2017–2019"} />
+          </div>
+        </motion.div>
+      )}
+
+      {activeTab === "skills" && (
+        <motion.div key="skills"
+          variants={tabVariants} initial="enter" animate="center" exit="exit"
+          transition={{ duration: 0.18 }}
+          className="space-y-4">
+          <div>
+            <label className={LABEL_CLS}>Technical Skills</label>
+            <p className="text-xs text-slate-400 mb-2">Comma-separated list of technologies and tools.</p>
+            <textarea className={TA_CLS} rows={4} value={form.skills} onChange={set("skills")}
+              placeholder="TypeScript, React, Node.js, PostgreSQL, Docker, AWS, GraphQL" />
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  /* ── Preview panel content ──────────────────────────────────────────────── */
+  const renderPreview = () => (
+    <div className="flex-1 overflow-y-auto p-5 lg:p-6">
+      {loading ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 max-w-2xl mx-auto">
+          <div className="space-y-3 animate-pulse">
+            <div className="h-6 bg-slate-100 rounded w-48" />
+            <div className="h-3 bg-slate-100 rounded w-32" />
+            <div className="h-3 bg-slate-100 rounded w-64 mt-4" />
+            <div className="space-y-2 mt-4">
+              {[80, 60, 90, 55, 75].map((w, i) => (
+                <div key={i} className="h-3 bg-slate-100 rounded" style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 text-center mt-6 font-medium">Crafting your resume…</p>
+        </div>
+      ) : displayContent ? (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22 }}
+          className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 max-w-2xl mx-auto"
+          style={{ fontFamily: "'Inter', sans-serif" }}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={previewMd}>
+            {displayContent}
+          </ReactMarkdown>
+        </motion.div>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-full text-center py-16">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4">
+            <FileText className="w-6 h-6 text-indigo-400" />
+          </div>
+          <p className="text-sm font-semibold text-slate-700 mb-1">Your preview appears here</p>
+          <p className="text-xs text-slate-400 max-w-48">Fill in your details on the left — the preview updates live as you type.</p>
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -347,267 +489,218 @@ export default function ResumeBuilder({ onOpenSubscription }: { onOpenSubscripti
       <LimitReachedModal isOpen={limitOpen} onClose={() => setLimitOpen(false)}
         type="resume" resetInHours={limitHours} used={limitUsed} limit={CREDITS.DAILY_RESUME_LIMIT} />
 
-      {/* Feedback toast portal */}
       {mounted && createPortal(
         <AnimatePresence>
           {toast && (
             <motion.div key="resume-toast"
               initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }} transition={{ duration: 0.22 }}
-              className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-2.5 px-5 py-3 rounded-2xl pointer-events-none"
-              style={{ background: "rgba(6,18,36,0.97)", border: "1px solid rgba(0,212,255,0.22)", boxShadow: "0 8px 40px rgba(0,0,0,0.7)" }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-[#00d4ff]" style={{ boxShadow: "0 0 6px rgba(0,212,255,0.8)" }} />
-              <span className="text-sm font-['Rajdhani'] font-semibold text-[rgba(226,232,240,0.9)] whitespace-nowrap">{toast}</span>
+              className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-2.5 px-5 py-3 rounded-2xl pointer-events-none shadow-xl"
+              style={{ background: "rgba(30,41,59,0.97)", border: "1px solid rgba(100,116,139,0.3)" }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+              <span className="text-sm font-medium text-slate-100 whitespace-nowrap"
+                style={{ fontFamily: "'Inter', sans-serif" }}>
+                {toast}
+              </span>
             </motion.div>
           )}
         </AnimatePresence>,
         document.body
       )}
 
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        {/* ── Header ─────────────────────────────────────────── */}
-        <div
-          className="flex items-center justify-between px-5 py-3 flex-shrink-0"
-          style={{ borderBottom: "1px solid rgba(0,212,255,0.07)" }}
-        >
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-slate-50">
+
+        {/* ── Global header ─────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 flex-shrink-0">
           <div>
-            <h2 className="font-['Orbitron'] text-sm font-bold text-white tracking-wide">Resume Builder</h2>
-            <p className="text-[10px] text-[rgba(0,212,255,0.5)] font-['Rajdhani'] tracking-widest mt-0.5">
-              ATS-optimised · Llama-3 70B · 2 credits
+            <h2 className="text-sm font-semibold text-slate-800" style={{ fontFamily: "'Inter', sans-serif" }}>
+              Resume Builder
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5" style={{ fontFamily: "'Inter', sans-serif" }}>
+              ATS-optimised · AI-powered · {CREDITS.DAILY_RESUME_LIMIT} free/day
             </p>
           </div>
-          {profile && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{ border: "1px solid rgba(0,212,255,0.2)", background: "rgba(0,212,255,0.05)" }}>
-              <span className="text-[10px] font-['Orbitron'] font-bold text-[#00d4ff]">
+          <div className="flex items-center gap-2">
+            {profile && (
+              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100"
+                style={{ fontFamily: "'Inter', sans-serif" }}>
                 {profile.credits} credits
               </span>
+            )}
+            {/* Mobile panel toggle */}
+            <div className="flex lg:hidden rounded-lg border border-slate-200 overflow-hidden">
+              {(["edit", "preview"] as const).map(p => (
+                <button key={p} onClick={() => setMobilePanel(p)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    mobilePanel === p
+                      ? "bg-indigo-600 text-white"
+                      : "bg-white text-slate-500 hover:bg-slate-50"
+                  }`}
+                  style={{ fontFamily: "'Inter', sans-serif" }}>
+                  {p === "edit" ? "Edit" : "Preview"}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-          {/* ── Collapsible form ─────────────────────────────── */}
-          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(0,212,255,0.15)" }}>
-            <button
-              onClick={() => setFormOpen((v) => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 text-xs font-['Orbitron'] font-bold tracking-widest text-[#00d4ff] transition-colors"
-              style={{ background: "rgba(0,212,255,0.05)" }}
-            >
-              <div className="flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5" />
-                FILL IN YOUR DETAILS
-              </div>
-              {formOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
+        {/* ── Split-screen body ─────────────────────────────────────────── */}
+        <div className="flex flex-1 min-h-0 overflow-hidden flex-col lg:flex-row">
 
-            <AnimatePresence initial={false}>
-              {formOpen && (
-                <motion.div
-                  key="form"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.22 }}
-                  className="overflow-hidden"
-                >
-                  <div className="px-4 pb-4 pt-3 space-y-3"
-                    style={{ background: "rgba(3,11,26,0.6)", borderTop: "1px solid rgba(0,212,255,0.08)" }}>
+          {/* LEFT: Form panel */}
+          <div className={`w-full lg:w-[44%] flex flex-col bg-white border-r border-slate-200 overflow-hidden ${
+            mobilePanel === "preview" ? "hidden lg:flex" : "flex"
+          }`}>
 
-                    {/* Row: name + title */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        {fieldLabel("Full Name *")}
-                        <input {...FIELD_STYLES.input} value={form.fullName} onChange={set("fullName")} placeholder="Jane Doe" />
-                      </div>
-                      <div>
-                        {fieldLabel("Job Title *")}
-                        <input {...FIELD_STYLES.input} value={form.jobTitle} onChange={set("jobTitle")} placeholder="Senior Full-Stack Engineer" />
-                      </div>
-                    </div>
+            {/* Section tabs */}
+            <div className="flex border-b border-slate-200 flex-shrink-0">
+              {TABS.map(tab => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
+                  <button key={tab.id} onClick={() => handleTabChange(tab.id)}
+                    className="flex-1 py-3 flex flex-col items-center gap-1 relative transition-colors"
+                    style={{ fontFamily: "'Inter', sans-serif" }}>
+                    <Icon className={`w-4 h-4 transition-colors ${active ? "text-indigo-600" : "text-slate-400"}`} />
+                    <span className={`text-[10px] font-medium transition-colors ${active ? "text-indigo-600" : "text-slate-400"}`}>
+                      {tab.label}
+                    </span>
+                    {active && (
+                      <motion.div layoutId="tab-underline"
+                        className="absolute bottom-0 left-1 right-1 h-0.5 bg-indigo-500 rounded-full"
+                        transition={{ type: "spring", stiffness: 500, damping: 40 }} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
 
-                    {/* Row: email + phone */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        {fieldLabel("Email")}
-                        <input {...FIELD_STYLES.input} type="email" value={form.email} onChange={set("email")} placeholder="jane@example.com" />
-                      </div>
-                      <div>
-                        {fieldLabel("Phone")}
-                        <input {...FIELD_STYLES.input} value={form.phone} onChange={set("phone")} placeholder="+1 555-0100" />
-                      </div>
-                    </div>
+            {/* Tab form content */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {renderTabContent()}
+            </div>
 
-                    {/* LinkedIn */}
-                    <div>
-                      {fieldLabel("LinkedIn / Portfolio")}
-                      <input {...FIELD_STYLES.input} value={form.linkedin} onChange={set("linkedin")} placeholder="linkedin.com/in/janedoe" />
-                    </div>
+            {/* Generate button */}
+            <div className="p-4 border-t border-slate-100 space-y-3 flex-shrink-0">
+              <AnimatePresence>
+                {error && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }}
+                    className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg bg-red-50 border border-red-100">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-600" style={{ fontFamily: "'Inter', sans-serif" }}>{error}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                    {/* Summary */}
-                    <div>
-                      {fieldLabel("Professional Summary")}
-                      <textarea {...FIELD_STYLES.textarea(2)} value={form.summary} onChange={set("summary")}
-                        placeholder="Results-driven engineer with 6 years of experience building scalable SaaS products…" />
-                    </div>
-
-                    {/* Experience */}
-                    <div>
-                      {fieldLabel("Work Experience *")}
-                      <textarea {...FIELD_STYLES.textarea(5)} value={form.experience} onChange={set("experience")}
-                        placeholder={"Senior Engineer @ Acme Corp (2021–Present)\n• Led migration to microservices, reducing latency by 40%\n• Mentored 3 junior developers\n\nEngineer @ StartupXYZ (2019–2021)\n• Built React dashboard used by 10K users"} />
-                    </div>
-
-                    {/* Skills */}
-                    <div>
-                      {fieldLabel("Skills")}
-                      <input {...FIELD_STYLES.input} value={form.skills} onChange={set("skills")}
-                        placeholder="TypeScript, React, Node.js, PostgreSQL, Docker, AWS" />
-                    </div>
-
-                    {/* Education */}
-                    <div>
-                      {fieldLabel("Education")}
-                      <textarea {...FIELD_STYLES.textarea(2)} value={form.education} onChange={set("education")}
-                        placeholder="B.Sc. Computer Science · MIT · 2019" />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* ── Generate button ───────────────────────────────── */}
-          <motion.button
-            onClick={handleGenerate}
-            disabled={loading || !form.fullName.trim() || !form.experience.trim()}
-            whileHover={!loading ? { y: -2, boxShadow: "0 0 28px rgba(0,212,255,0.35)" } : {}}
-            whileTap={!loading ? { scale: 0.97 } : {}}
-            className="w-full py-3.5 rounded-xl font-['Orbitron'] text-sm font-bold tracking-widest text-white flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            style={{
-              background: loading
-                ? "rgba(0,212,255,0.2)"
-                : "linear-gradient(135deg, #00d4ff 0%, #0284c7 50%, #7c3aed 100%)",
-            }}
-          >
-            {loading ? (
-              <>
-                <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                  className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
-                Crafting your resume…
-              </>
-            ) : (
-              <>
-                <Wand2 className="w-4 h-4" />
-                Generate Resume · Free ({CREDITS.DAILY_RESUME_LIMIT}/day)
-              </>
-            )}
-          </motion.button>
-
-          {/* Error */}
-          <AnimatePresence>
-            {error && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="flex items-start gap-3 px-4 py-3 rounded-xl"
-                style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.22)" }}>
-                <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-red-400 font-['Rajdhani']">{error}</p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* ── Resume preview ────────────────────────────────── */}
-          <AnimatePresence>
-            {resume && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-2xl overflow-hidden"
+              <motion.button
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                whileHover={canGenerate ? { y: -1 } : {}}
+                whileTap={canGenerate ? { scale: 0.98 } : {}}
+                className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-indigo-200"
                 style={{
-                  background: "linear-gradient(160deg, rgba(8,22,46,0.97), rgba(3,11,26,0.99))",
-                  border:     "1px solid rgba(0,212,255,0.18)",
-                  boxShadow:  "0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(0,212,255,0.04)",
+                  fontFamily: "'Inter', sans-serif",
+                  background: loading
+                    ? "rgba(99,102,241,0.5)"
+                    : "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
                 }}
               >
-                {/* Toolbar */}
-                <div className="flex items-center justify-between px-4 py-3 flex-wrap gap-2"
-                  style={{ borderBottom: "1px solid rgba(0,212,255,0.1)", background: "rgba(0,212,255,0.03)" }}>
+                {loading ? (
+                  <>
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+                    Crafting your resume…
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-4 h-4" />
+                    Generate Resume
+                  </>
+                )}
+              </motion.button>
+            </div>
+          </div>
 
-                  {/* Left: title + spinner */}
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-3.5 h-3.5 text-[#00d4ff]" />
-                    <span className="text-[10px] font-['Orbitron'] text-[rgba(0,212,255,0.7)] tracking-widest">
-                      GENERATED RESUME
-                    </span>
-                    {loading && (
-                      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-3 h-3 border border-[rgba(0,212,255,0.3)] border-t-[#00d4ff] rounded-full" />
-                    )}
-                  </div>
+          {/* RIGHT: Preview panel */}
+          <div className={`flex-1 flex flex-col bg-slate-50 overflow-hidden ${
+            mobilePanel === "edit" ? "hidden lg:flex" : "flex"
+          }`}>
 
-                  {/* Right: feedback + actions */}
-                  <div className="flex items-center gap-1">
+            {/* Preview toolbar */}
+            <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-slate-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-500" />
+                <span className="text-xs font-semibold text-slate-600"
+                  style={{ fontFamily: "'Inter', sans-serif" }}>
+                  {resume ? "Generated Resume" : "Live Preview"}
+                </span>
+                {loading && (
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="w-3.5 h-3.5 border-2 border-indigo-100 border-t-indigo-500 rounded-full" />
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {resume && (
+                  <>
                     {/* Feedback */}
-                    <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
                       onClick={() => showToast("Thanks! Glad the resume looks good.")}
-                      title="Good result"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-[rgba(148,163,184,0.35)] hover:text-[#00ff88] transition-colors">
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-emerald-500 transition-colors">
                       <ThumbsUp className="w-3.5 h-3.5" />
                     </motion.button>
-                    <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
                       onClick={() => showToast("Sorry! Try adding more details to the form.")}
-                      title="Poor result"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-[rgba(148,163,184,0.35)] hover:text-red-400 transition-colors">
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-400 transition-colors">
                       <ThumbsDown className="w-3.5 h-3.5" />
                     </motion.button>
 
-                    <div className="w-px h-4 bg-[rgba(255,255,255,0.07)] mx-1" />
+                    <div className="w-px h-4 bg-slate-200 mx-1" />
 
                     {/* Copy */}
-                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                       onClick={handleCopy}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-['Rajdhani'] font-bold tracking-wider transition-colors"
-                      style={{ color: copied ? "#00ff88" : "rgba(148,163,184,0.6)", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-slate-200 bg-white transition-colors hover:border-slate-300"
+                      style={{ fontFamily: "'Inter', sans-serif", color: copied ? "#16a34a" : "#64748b" }}>
                       {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                      {copied ? "COPIED" : "COPY"}
+                      {copied ? "Copied" : "Copy"}
                     </motion.button>
 
-                    {/* MD download */}
-                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                    {/* .md download */}
+                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                       onClick={handleDownloadMd}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-['Rajdhani'] font-bold tracking-wider"
-                      style={{ color: "rgba(148,163,184,0.6)", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                      <Download className="w-3 h-3" /> .MD
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 bg-white transition-colors hover:border-slate-300"
+                      style={{ fontFamily: "'Inter', sans-serif" }}>
+                      <Download className="w-3 h-3" /> .md
                     </motion.button>
+                  </>
+                )}
 
-                    {/* PDF export */}
-                    <motion.button
-                      whileHover={!pdfLoading ? { scale: 1.05, boxShadow: "0 0 14px rgba(0,212,255,0.3)" } : {}}
-                      whileTap={!pdfLoading ? { scale: 0.95 } : {}}
-                      onClick={handleDownloadPDF}
-                      disabled={pdfLoading || loading}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-['Rajdhani'] font-bold tracking-wider disabled:opacity-50 transition-all"
-                      style={{ color: "#00d4ff", background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.25)" }}>
-                      {pdfLoading ? (
-                        <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                          className="w-3 h-3 border border-[rgba(0,212,255,0.3)] border-t-[#00d4ff] rounded-full" />
-                      ) : (
-                        <Download className="w-3 h-3" />
-                      )}
-                      {pdfLoading ? "Exporting…" : "PDF"}
-                    </motion.button>
-                  </div>
-                </div>
+                {/* Prominent PDF button */}
+                <motion.button
+                  whileHover={!pdfLoading && !!resume ? { y: -1, boxShadow: "0 4px 16px rgba(99,102,241,0.35)" } : {}}
+                  whileTap={!pdfLoading && !!resume ? { scale: 0.97 } : {}}
+                  onClick={handleDownloadPDF}
+                  disabled={!resume || pdfLoading || loading}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                  style={{
+                    fontFamily: "'Inter', sans-serif",
+                    background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+                  }}>
+                  {pdfLoading ? (
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  {pdfLoading ? "Exporting…" : "Download PDF"}
+                </motion.button>
+              </div>
+            </div>
 
-                {/* Rendered preview */}
-                <div className="px-6 py-5">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={resumeMd}>
-                    {resume}
-                  </ReactMarkdown>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            {renderPreview()}
+          </div>
         </div>
       </div>
     </>

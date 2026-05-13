@@ -207,7 +207,7 @@ function Toast({ text }: { text: string }) {
    │  Phase D  →  plain div, no cursor, action bar fades in (done)           │
    └─────────────────────────────────────────────────────────────────────────┘
    ══════════════════════════════════════════════════════════════════════════════ */
-export default function FluidMessage({ message, index }: Props) {
+export default function FluidMessage({ message, index: _index }: Props) {
   const [copied,   setCopied]   = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [toast,    setToast]    = useState<string | null>(null);
@@ -271,7 +271,7 @@ export default function FluidMessage({ message, index }: Props) {
         </div>
 
         {/* ── Bubble column ─────────────────────────────────────── */}
-        <div className={`max-w-[82%] flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
+        <div className={`min-w-0 w-full max-w-[92%] sm:max-w-[84%] lg:max-w-[78%] flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
 
           {/* Header row */}
           <div className={`flex items-center gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
@@ -306,22 +306,27 @@ export default function FluidMessage({ message, index }: Props) {
             className={`rounded-2xl px-4 py-3.5 ${isUser ? "rounded-tr-sm" : "rounded-tl-sm"}`}
             style={isUser ? {
               /* User bubble */
-              background: "linear-gradient(135deg, rgba(0,212,255,0.12) 0%, rgba(124,58,237,0.18) 100%)",
-              border:     "1px solid rgba(0,212,255,0.22)",
-              color:      "white",
-              fontSize:   "0.875rem",
-              fontFamily: "Rajdhani, sans-serif",
-              lineHeight: 1.7,
+              background:   "linear-gradient(135deg, rgba(0,212,255,0.12) 0%, rgba(124,58,237,0.18) 100%)",
+              border:       "1px solid rgba(0,212,255,0.22)",
+              color:        "white",
+              fontSize:     "clamp(0.8rem, 2.2vw, 0.875rem)",
+              fontFamily:   "Rajdhani, sans-serif",
+              lineHeight:   1.7,
+              wordBreak:    "break-word",
+              overflowWrap: "break-word",
+              whiteSpace:   "pre-wrap",
             } : {
               /* AI bubble — full glassmorphism, fixed layout, no jump */
-              background:        "linear-gradient(135deg, rgba(6,18,40,0.92) 0%, rgba(3,11,26,0.97) 100%)",
-              backdropFilter:    "blur(16px)",
+              background:           "linear-gradient(135deg, rgba(6,18,40,0.92) 0%, rgba(3,11,26,0.97) 100%)",
+              backdropFilter:       "blur(16px)",
               WebkitBackdropFilter: "blur(16px)",
-              border:            "1px solid rgba(168,85,247,0.18)",
-              boxShadow:         "0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(168,85,247,0.06), inset 0 1px 0 rgba(255,255,255,0.04)",
-              minHeight:         "3.5rem",
-              contain:           "layout",
-              willChange:        "contents",
+              border:               "1px solid rgba(168,85,247,0.18)",
+              boxShadow:            "0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(168,85,247,0.06), inset 0 1px 0 rgba(255,255,255,0.04)",
+              minHeight:            "3.5rem",
+              contain:              "layout",
+              willChange:           "contents",
+              wordBreak:            "break-word",
+              overflowWrap:         "break-word",
             }}
           >
             {isUser ? (

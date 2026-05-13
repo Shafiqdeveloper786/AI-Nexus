@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["next-auth", "@auth/core"],
 
   /* ── Native Node.js modules — must NOT be bundled by webpack ──────────── */
-  serverExternalPackages: ["nodemailer", "canvas", "pdf-parse", "pdfjs-dist"],
+  serverExternalPackages: ["nodemailer", "canvas", "pdf-parse", "pdfjs-dist", "mupdf"],
 
   /* ── Production hardening ─────────────────────────────────────────────── */
   poweredByHeader: false,   // don't expose "X-Powered-By: Next.js"

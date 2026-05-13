@@ -78,7 +78,8 @@ export const maxDuration = 60;
 const _require = createRequire(import.meta.url);
 
 /* ── Models ─────────────────────────────────────────────────────────────── */
-const VISION_MODEL   = "llama-3.2-11b-vision-preview";
+const VISION_MODEL   = "meta-llama/llama-4-scout-17b-16e-instruct"; // Llama 4 Scout — current Groq multimodal flagship
+const VISION_FALLBACK = "llama-3.2-90b-vision-preview";             // fallback if Scout is unavailable
 const TEXT_MODEL     = "llama-3.3-70b-versatile";
 const MIN_TEXT_CHARS = 50;
 
@@ -256,12 +257,20 @@ async function groqVision(
     })),
   ];
 
-  return groq.chat.completions.create({
-    model:      VISION_MODEL,
-    messages:   [{ role: "user", content }],
-    stream:     true,
-    max_tokens: 1500,
-  });
+  for (const model of [VISION_MODEL, VISION_FALLBACK]) {
+    try {
+      return await groq.chat.completions.create({
+        model,
+        messages:   [{ role: "user", content }],
+        stream:     true,
+        max_tokens: 1500,
+      });
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      console.warn("[groqVision] %s failed: %s — trying next model", model, m.slice(0, 80));
+    }
+  }
+  throw new Error(`All vision models unavailable (tried ${VISION_MODEL}, ${VISION_FALLBACK})`);
 }
 
 async function groqText(groq: Groq, content: string): Promise<any> {

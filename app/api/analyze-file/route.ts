@@ -9,175 +9,204 @@ import { CREDITS } from "@/lib/credits";
 export const runtime    = "nodejs";
 export const maxDuration = 60;
 
-/* ── Canvas — CJS require at module scope (avoids ESM async-import races) ── */
+/* ── CJS require — native modules & pdf-parse MUST be loaded this way ──── */
 const _require = createRequire(import.meta.url);
-const { createCanvas } = _require("canvas") as typeof import("canvas");
 
-/* ── Model IDs ───────────────────────────────────────────────────────────── */
-const VISION_MODEL = "llama-3.2-11b-vision-preview"; // ONLY source of truth for scanned PDFs
-const TEXT_MODEL   = "llama-3.3-70b-versatile";      // for text-extractable documents
+/* Pre-load canvas so it is ready before pdf-parse v2 calls getScreenshot() */
+_require("canvas");
 
-const MIN_TEXT_CHARS = 50; // below this → document is treated as scanned
+/* ── Models ─────────────────────────────────────────────────────────────── */
+const VISION_MODEL = "llama-3.2-11b-vision-preview";
+const TEXT_MODEL   = "llama-3.3-70b-versatile";
+const MIN_TEXT_CHARS = 50;
 
-/* ── pdfjs singleton ─────────────────────────────────────────────────────── */
-let _pdfjs: any = null;
-
-async function getPdfjs(): Promise<any> {
-  if (_pdfjs) return _pdfjs;
-
-  _pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs" as string) as any;
-
-  /* Cross-platform worker URL:
-     Unix  /abs/path → file:///abs/path   (file:// + leading-/ = 3 slashes)
-     Win   D:\path   → file:///D:/path    (file:/// + normalised = 3 slashes) */
-  const { resolve, sep } = await import("path");
-  const abs  = resolve(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs");
-  const wUrl = abs.startsWith("/") ? `file://${abs}` : `file:///${abs.split(sep).join("/")}`;
-  _pdfjs.GlobalWorkerOptions.workerSrc = wUrl;
-
-  console.log("[pdfjs] workerSrc:", wUrl);
-  return _pdfjs;
-}
-
-/* ── Analysis system prompt ──────────────────────────────────────────────── */
+/* ── System prompt ───────────────────────────────────────────────────────── */
 const SYSTEM = `You are AI Nexus — an expert document analyst.
-
 Rules:
-- Describe what you see precisely, then answer the user's question directly.
-- Use **bold headings** and bullet points for clarity.
-- STRICT: Do NOT generate code blocks unless the user explicitly asks for code.
-- Answer ONLY from the document content. Never guess or hallucinate.`;
+- Describe visual content precisely, then answer the user's question directly.
+- Use **bold headings** and bullet points.
+- STRICT: Do NOT generate code blocks unless the user explicitly requests code.
+- Answer ONLY from the document content. Never guess or hallucinate.
+- If you see a special ID, key, or code in the document, report it exactly.`;
 
 /* ════════════════════════════════════════════════════════════════════════════
-   renderPdfToImages
-   Returns base64 PNG strings, one per rendered page (up to maxPages).
-   Returns [] if pdfjs/canvas throw — caller must treat this as a hard error
-   for scanned PDFs, NOT as a prompt to guess from the filename.
+   extractTextAndScreenshots
+   Uses pdf-parse v2 (PDFParse class) — correct API:
+     new PDFParse(buffer)          ← Buffer, NOT an options object
+     .getText()                    ← returns { text: string, ... }
+     .getScreenshot({ width })     ← returns array of { data: Buffer, ... }
    ════════════════════════════════════════════════════════════════════════════ */
-async function renderPdfToImages(pdfBuffer: Buffer, maxPages = 3): Promise<string[]> {
+async function extractTextAndScreenshots(
+  pdfBuffer: Buffer,
+  maxPages   = 3,
+): Promise<{ text: string; images: string[] }> {
+  const { PDFParse } = _require("pdf-parse") as {
+    PDFParse: new (buf: Buffer) => any;
+  };
+
+  const parser = new PDFParse(pdfBuffer);   // ← correct: Buffer, not {data:buf}
+  let   text   = "";
   const images: string[] = [];
-  let pdfDoc: any = null;
 
+  /* Text extraction */
   try {
-    const pdfjs = await getPdfjs();
+    const textResult = await parser.getText();
+    text = (
+      typeof textResult === "string"
+        ? textResult
+        : textResult?.text ?? textResult?.content ?? ""
+    ).trim();
+    console.log("[pdf-parse] getText OK — chars=%d", text.length);
+  } catch (err) {
+    console.warn("[pdf-parse] getText failed:", err instanceof Error ? err.message : err);
+  }
 
-    pdfDoc = await pdfjs.getDocument({
-      data:            new Uint8Array(pdfBuffer),
-      useSystemFonts:  true,
-      disableFontFace: false,
-      isEvalSupported: false,
-      verbosity:       0,
+  /* Screenshot / page-image extraction via pdf-parse v2 built-in renderer */
+  try {
+    const shots: any[] = await parser.getScreenshot({
+      width:  1200,
+      pages:  Array.from({ length: maxPages }, (_, i) => i + 1), // [1, 2, 3]
+    });
+
+    for (const shot of shots) {
+      /* shot.data may be a Buffer, Uint8Array, or base64 string */
+      if (!shot) continue;
+      if (typeof shot === "string") {
+        /* Already base64 */
+        images.push(shot.replace(/^data:image\/\w+;base64,/, ""));
+      } else if (shot.data) {
+        images.push(Buffer.from(shot.data).toString("base64"));
+      } else if (shot.buffer ?? shot instanceof Buffer) {
+        images.push(Buffer.from(shot).toString("base64"));
+      }
+    }
+
+    console.log("[pdf-parse] getScreenshot OK — pages=%d", images.length);
+  } catch (err) {
+    console.error(
+      "[pdf-parse] getScreenshot FAILED:",
+      err instanceof Error ? err.stack ?? err.message : String(err)
+    );
+  }
+
+  return { text, images };
+}
+
+/* ── pdfjs text-content fallback (no canvas needed) ─────────────────────── */
+async function extractTextViaPdfjs(pdfBuffer: Buffer): Promise<string> {
+  try {
+    const pdfjs   = await import("pdfjs-dist/legacy/build/pdf.mjs" as string) as any;
+    const { resolve, sep } = await import("path");
+    const abs = resolve(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = abs.startsWith("/")
+      ? `file://${abs}`
+      : `file:///${abs.split(sep).join("/")}`;
+
+    const pdfDoc = await pdfjs.getDocument({
+      data:       new Uint8Array(pdfBuffer),
+      verbosity:  0,
     }).promise;
 
-    const total = pdfDoc.numPages;
-    const pages = Math.min(total, maxPages);
-    console.log(`[renderPdfToImages] PDF has ${total} page(s) — rendering ${pages}`);
+    const pages = Math.min(pdfDoc.numPages, 10);
+    let   text  = "";
 
     for (let p = 1; p <= pages; p++) {
-      const page     = await pdfDoc.getPage(p);
-      const viewport = page.getViewport({ scale: 1.5 });
-      const w        = Math.floor(viewport.width);
-      const h        = Math.floor(viewport.height);
-      const canvas   = createCanvas(w, h);
-      const ctx      = canvas.getContext("2d");
-
-      await page.render({ canvasContext: ctx, viewport }).promise;
-
-      const b64 = canvas.toBuffer("image/png").toString("base64");
-      images.push(b64);
-      page.cleanup();
-      console.log(`[renderPdfToImages] page ${p}: ${w}×${h}px  ${Math.round(b64.length * 0.75 / 1024)}KB`);
+      const page    = await pdfDoc.getPage(p);
+      const content = await page.getTextContent();
+      text += content.items.map((i: any) => i.str).join(" ") + "\n\n";
     }
 
-    console.log(`[renderPdfToImages] SUCCESS — ${images.length} image(s) produced`);
+    await pdfDoc.destroy();
+    const cleaned = text.trim();
+    console.log("[pdfjs] extractText OK — chars=%d", cleaned.length);
+    return cleaned;
   } catch (err) {
-    /* Log the real stack trace — visible in Next.js terminal / Vercel logs */
-    console.error(
-      "[renderPdfToImages] RENDER FAILED:\n",
-      err instanceof Error ? err.stack : String(err)
-    );
-  } finally {
-    await pdfDoc?.destroy().catch(() => {});
-  }
-
-  return images;
-}
-
-/* ── extractPdfText ──────────────────────────────────────────────────────── */
-async function extractPdfText(pdfBuffer: Buffer): Promise<string> {
-  try {
-    /* Handle both pdf-parse v1 (function) and v2 (class) APIs */
-    const mod = _require("pdf-parse") as any;
-    if (typeof mod === "function") {
-      const result = await mod(pdfBuffer);
-      return (result.text ?? "").trim();
-    }
-    const PDFParse = mod.PDFParse ?? mod.default?.PDFParse;
-    if (PDFParse) {
-      const result = await new PDFParse({ data: pdfBuffer, verbosity: 0 }).getText();
-      return (result.text ?? "").trim();
-    }
-    return "";
-  } catch (err) {
-    console.warn("[extractPdfText] failed:", err instanceof Error ? err.message : err);
+    console.warn("[pdfjs] extractText failed:", err instanceof Error ? err.message : err);
     return "";
   }
 }
 
-/* ── visionStream — ONLY real page images, never filename guesses ────────── */
-async function visionStream(
-  groq:      Groq,
-  pageImages: string[],
-  textCtx:    string,
-  fileName:   string,
-  userQ:      string,
-  maxTokens   = 1500,
+/* ── Direct JPEG extraction from raw PDF bytes (pure JS, no canvas) ───────
+   Scanned PDFs embed full-page JPEG images as raw byte streams.
+   This method finds them by scanning for JPEG SOI (FF D8 FF) markers.
+   Returns [] for digital PDFs that have no embedded JPEG streams.
+   ─────────────────────────────────────────────────────────────────────────── */
+function extractEmbeddedJpegs(pdfBuffer: Buffer, max = 3): string[] {
+  const found: string[] = [];
+  let   i = 0;
+
+  while (i < pdfBuffer.length - 3 && found.length < max) {
+    /* Look for JPEG Start-of-Image: FF D8 FF (+ any marker byte) */
+    if (pdfBuffer[i] === 0xFF && pdfBuffer[i + 1] === 0xD8 && pdfBuffer[i + 2] === 0xFF) {
+      const start = i;
+      /* Scan for JPEG End-of-Image: FF D9 */
+      let   end   = -1;
+      for (let j = start + 2; j < pdfBuffer.length - 1; j++) {
+        if (pdfBuffer[j] === 0xFF && pdfBuffer[j + 1] === 0xD9) {
+          end = j + 2;
+          break;
+        }
+      }
+      if (end !== -1) {
+        const jpeg = pdfBuffer.subarray(start, end);
+        if (jpeg.length > 50_000) {             // skip thumbnails / icons
+          found.push(jpeg.toString("base64"));
+          console.log("[extractEmbeddedJpegs] found %dKB JPEG at offset %d", Math.round(jpeg.length / 1024), start);
+        }
+        i = end;
+        continue;
+      }
+    }
+    i++;
+  }
+
+  return found;
+}
+
+/* ── Groq stream helpers ─────────────────────────────────────────────────── */
+async function visionGroqStream(
+  groq:    Groq,
+  images:  string[],    // base64 PNG or JPEG
+  textCtx: string,
+  userQ:   string,
+  mime     = "image/png",
+  maxTok   = 1500,
 ): Promise<any> {
-  const prompt = [
+  const prompt: any[] = [
     {
       type: "text",
       text: (
-        `You are analysing a PDF document: "${fileName}"\n` +
-        `${pageImages.length} page(s) are attached as PNG images.\n` +
-        (textCtx ? `\nExtracted searchable text (use as additional context):\n${textCtx}\n` : "") +
+        `You are analysing a document. ${images.length} page image(s) are attached.\n` +
+        (textCtx ? `\nExtracted text context:\n${textCtx}\n` : "") +
         `\n---\nUser question: ${userQ}\n\n` +
-        `IMPORTANT: Answer ONLY based on the visual content of the attached pages. ` +
-        `Do not guess or use the filename as a source of information.`
+        `CRITICAL: Answer ONLY from the visual content of the attached images. ` +
+        `Report any IDs, codes, or keys you see exactly as written.`
       ),
     },
-    ...pageImages.map((img) => ({
+    ...images.map((b64) => ({
       type:      "image_url",
-      image_url: { url: `data:image/png;base64,${img}` },
+      image_url: { url: `data:${mime};base64,${b64}` },
     })),
   ];
 
-  /* Try vision model — hard failure if Groq is down */
   return groq.chat.completions.create({
     model:      VISION_MODEL,
-    messages:   [{ role: "user", content: prompt as any }],
+    messages:   [{ role: "user", content: prompt }],
     stream:     true,
-    max_tokens: maxTokens,
+    max_tokens: maxTok,
   });
 }
 
-/* ── textStream ──────────────────────────────────────────────────────────── */
-async function textStream(
-  groq:    Groq,
-  content: string,
-): Promise<any> {
+async function textGroqStream(groq: Groq, content: string): Promise<any> {
   return groq.chat.completions.create({
     model:       TEXT_MODEL,
-    messages:    [
-      { role: "system", content: SYSTEM },
-      { role: "user",   content },
-    ],
+    messages:    [{ role: "system", content: SYSTEM }, { role: "user", content }],
     stream:      true,
     max_tokens:  1500,
     temperature: 0.35,
   });
 }
 
-/* ── pipe ────────────────────────────────────────────────────────────────── */
 async function pipe(
   stream:  any,
   writer:  WritableStreamDefaultWriter<Uint8Array>,
@@ -199,34 +228,32 @@ interface AnalyzeBody {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   POST /api/analyze-file
+   POST /api/analyze-file  —  Strict Vision-OCR Pipeline
 
-   Strict Vision-OCR Pipeline — NO GUESSING
+   ┌─ IMAGE ───────────────────────────────────────────────────────────────────┐
+   │  → visionGroqStream(image)                                                │
+   └───────────────────────────────────────────────────────────────────────────┘
+   ┌─ PDF — Three-layer image extraction (no guessing) ────────────────────────┐
+   │                                                                            │
+   │  LAYER 1: pdf-parse v2 getScreenshot() + getText()                        │
+   │    → if screenshots > 0: visionGroqStream(screenshots + textCtx)          │
+   │                                                                            │
+   │  LAYER 2: Direct JPEG byte-scan (scanned PDFs embed raw JPEGs)            │
+   │    → if jpegs found: visionGroqStream(jpegs, mime=image/jpeg)             │
+   │                                                                            │
+   │  LAYER 3: Text-only (text-extractable PDF)                                │
+   │    text = pdf-parse getText() OR pdfjs getTextContent()                   │
+   │    → if text ≥ 50 chars: textGroqStream(text)                             │
+   │                                                                            │
+   │  FAILURE: All layers failed                                                │
+   │    → stream: "Error: Buffer-to-Image Conversion Failed"                   │
+   │      with diagnostics for each layer — NO GUESSING                        │
+   └───────────────────────────────────────────────────────────────────────────┘
+   ┌─ TEXT FILE ───────────────────────────────────────────────────────────────┐
+   │  → textGroqStream(file content)                                            │
+   └───────────────────────────────────────────────────────────────────────────┘
 
-   ┌─ IMAGE ──────────────────────────────────────────────────────────────────┐
-   │  → visionStream(image)                                                   │
-   │  → throws if Groq is down → "Vision Analysis Failed" streamed            │
-   └──────────────────────────────────────────────────────────────────────────┘
-   ┌─ PDF ────────────────────────────────────────────────────────────────────┐
-   │  Run in parallel: renderPdfToImages() + extractPdfText()                 │
-   │                                                                          │
-   │  pages > 0                                                               │
-   │    → visionStream(pages, textCtx)   ← REAL visual analysis              │
-   │    → throws → "Vision Analysis Failed - Check Groq API Key/Quota"       │
-   │                                                                          │
-   │  pages == 0 + text ≥ MIN_TEXT_CHARS                                      │
-   │    → textStream(extracted text)     ← text-based PDF, works fine        │
-   │                                                                          │
-   │  pages == 0 + text < MIN_TEXT_CHARS                                      │
-   │    → HARD ERROR: "Vision Analysis Failed — PDF page rendering failed.   │
-   │       Upload a page screenshot as a .jpg for visual analysis."          │
-   │    NO GUESSING. NO FILENAME INFERENCE. PERIOD.                           │
-   └──────────────────────────────────────────────────────────────────────────┘
-   ┌─ TEXT FILE ──────────────────────────────────────────────────────────────┐
-   │  → textStream(file content)                                              │
-   └──────────────────────────────────────────────────────────────────────────┘
-
-   Credits: CREDITS.IMAGE (12) deducted only on successful stream completion.
+   Credits: 12 (CREDITS.IMAGE) deducted only after successful stream.
    ════════════════════════════════════════════════════════════════════════════ */
 export async function POST(req: NextRequest) {
   /* 1. Auth */
@@ -276,24 +303,19 @@ export async function POST(req: NextRequest) {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer  = writable.getWriter();
   const encoder = new TextEncoder();
-
-  const writeStr = (s: string) => writer.write(encoder.encode(s));
+  const write   = (s: string) => writer.write(encoder.encode(s));
 
   /* 5. Pipeline */
   (async () => {
     let succeeded = false;
 
     try {
-      /* ── IMAGE ──────────────────────────────────────────────────── */
+      /* ── IMAGE ─────────────────────────────────────────────────── */
       if (fileType === "image") {
-        console.log("[analyze-file] IMAGE path →", fileName, mimeType);
+        console.log("[analyze-file] IMAGE →", fileName);
         const dataUrl = `data:${mimeType ?? "image/jpeg"};base64,${fileContent}`;
-
-        let stream: any;
         try {
-          stream = await visionStream(groq, [], "", "", userQ, 1024);
-          /* Rebuild for image: override the content directly */
-          stream = await groq.chat.completions.create({
+          const stream = await groq.chat.completions.create({
             model:      VISION_MODEL,
             messages:   [{
               role:    "user",
@@ -305,134 +327,141 @@ export async function POST(req: NextRequest) {
             stream:     true,
             max_tokens: 1024,
           });
+          await pipe(stream, writer, encoder);
+          succeeded = true;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.error("[analyze-file] Vision API error:", msg);
-          await writeStr(
-            `⚠️ **Vision Analysis Failed** — Check your Groq API key/quota.\n\n` +
-            `_Error: ${msg}_`
-          );
-          return;
+          await write(`⚠️ **Vision Analysis Failed** — Groq API error: ${msg}`);
         }
-
-        await pipe(stream, writer, encoder);
-        succeeded = true;
 
       /* ── PDF ────────────────────────────────────────────────────── */
       } else if (fileType === "pdf") {
         const pdfBuffer = Buffer.from(fileContent, "base64");
+        console.log("[analyze-file] PDF: %s  size=%dKB", fileName, Math.round(pdfBuffer.length / 1024));
 
-        /* Emit status token — renders inside pre-created stable bubble */
-        await writeStr("🔍 **Analyzing document visual context…**\n\n");
+        await write("🔍 **Analyzing document…**\n\n");
 
-        /* Render pages and extract text IN PARALLEL */
-        console.log("[analyze-file] PDF: starting parallel render + text extraction");
-        const [pageImages, rawText] = await Promise.all([
-          renderPdfToImages(pdfBuffer, 3),
-          extractPdfText(pdfBuffer),
-        ]);
+        /* Track what each layer produced for the failure diagnostic */
+        const diagnostics: string[] = [];
 
-        const cleanLen = rawText.replace(/\s+/g, "").length;
-        console.log(
-          "[analyze-file] PDF result — pages=%d  textChars=%d  file=%s",
-          pageImages.length, cleanLen, fileName
-        );
+        /* ── LAYER 1: pdf-parse v2 getScreenshot() ── */
+        console.log("[analyze-file] LAYER 1: pdf-parse v2 getScreenshot()");
+        const { text: parsedText, images: screenshots } = await extractTextAndScreenshots(pdfBuffer, 3);
+        const textClean = parsedText.replace(/\s+/g, "").length;
+        diagnostics.push(`Layer 1 (pdf-parse v2): screenshots=${screenshots.length}  textChars=${textClean}`);
 
-        /* ── Case 1: Pages rendered → REAL vision analysis ── */
-        if (pageImages.length > 0) {
-          console.log("[analyze-file] Sending %d page(s) to Vision model", pageImages.length);
-          const textCtx = cleanLen >= MIN_TEXT_CHARS
-            ? rawText.slice(0, 5_000)
-            : "";
-
-          let stream: any;
+        if (screenshots.length > 0) {
+          console.log("[analyze-file] LAYER 1 SUCCESS — %d screenshot(s)", screenshots.length);
           try {
-            stream = await visionStream(groq, pageImages, textCtx, fileName, userQ, 1500);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error("[analyze-file] Vision API error after rendering:", msg);
-            await writeStr(
-              `⚠️ **Vision Analysis Failed** — Check your Groq API key/quota.\n\n` +
-              `PDF pages were rendered successfully (${pageImages.length} page(s)) ` +
-              `but the Vision model returned an error:\n\n_${msg}_`
+            const stream = await visionGroqStream(
+              groq, screenshots,
+              textClean >= MIN_TEXT_CHARS ? parsedText.slice(0, 5_000) : "",
+              userQ,
+              "image/png",
             );
-            return;
-          }
-
-          await pipe(stream, writer, encoder);
-          succeeded = true;
-
-        /* ── Case 2: No pages rendered + usable text ── */
-        } else if (cleanLen >= MIN_TEXT_CHARS) {
-          console.log("[analyze-file] No pages rendered — using extracted text (%d chars)", cleanLen);
-          const content =
-            `**File:** \`${fileName}\`\n\n` +
-            `**Extracted Text:**\n\n${rawText.slice(0, 14_000)}\n\n` +
-            `---\n**Question:** ${userQ}`;
-
-          let stream: any;
-          try {
-            stream = await textStream(groq, content);
+            await pipe(stream, writer, encoder);
+            succeeded = true;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            await writeStr(`⚠️ **Analysis Failed** — Groq API error: ${msg}`);
-            return;
+            console.error("[analyze-file] LAYER 1 Groq error:", msg);
+            diagnostics.push(`Layer 1 Groq error: ${msg}`);
           }
+        }
 
-          await pipe(stream, writer, encoder);
-          succeeded = true;
+        /* ── LAYER 2: Direct JPEG byte-scan ── */
+        if (!succeeded) {
+          console.log("[analyze-file] LAYER 2: direct JPEG byte-scan");
+          const jpegs = extractEmbeddedJpegs(pdfBuffer, 3);
+          diagnostics.push(`Layer 2 (JPEG byte-scan): found=${jpegs.length}`);
 
-        /* ── Case 3: No pages + no text — HARD ERROR, NO GUESSING ── */
-        } else {
-          console.error(
-            "[analyze-file] RENDER FAILURE — pages=0, textChars=%d  file=%s\n" +
-            "Check server logs above for [renderPdfToImages] RENDER FAILED stack trace.",
-            cleanLen, fileName
+          if (jpegs.length > 0) {
+            console.log("[analyze-file] LAYER 2 SUCCESS — %d JPEG(s)", jpegs.length);
+            try {
+              const stream = await visionGroqStream(
+                groq, jpegs,
+                textClean >= MIN_TEXT_CHARS ? parsedText.slice(0, 5_000) : "",
+                userQ,
+                "image/jpeg",
+              );
+              await pipe(stream, writer, encoder);
+              succeeded = true;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error("[analyze-file] LAYER 2 Groq error:", msg);
+              diagnostics.push(`Layer 2 Groq error: ${msg}`);
+            }
+          }
+        }
+
+        /* ── LAYER 3: Text-only (digital PDF) ── */
+        if (!succeeded) {
+          console.log("[analyze-file] LAYER 3: text-only path");
+
+          /* Try pdf-parse text first, then pdfjs as backup */
+          let finalText = parsedText;
+          if (textClean < MIN_TEXT_CHARS) {
+            finalText = await extractTextViaPdfjs(pdfBuffer);
+          }
+          const finalClean = finalText.replace(/\s+/g, "").length;
+          diagnostics.push(`Layer 3 (text): chars=${finalClean}`);
+
+          if (finalClean >= MIN_TEXT_CHARS) {
+            console.log("[analyze-file] LAYER 3 SUCCESS — text model  chars=%d", finalClean);
+            try {
+              const content =
+                `**File:** \`${fileName}\`\n\n` +
+                `**Extracted Content:**\n\n${finalText.slice(0, 14_000)}\n\n` +
+                `---\n**Question:** ${userQ}`;
+              const stream = await textGroqStream(groq, content);
+              await pipe(stream, writer, encoder);
+              succeeded = true;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              diagnostics.push(`Layer 3 Groq error: ${msg}`);
+            }
+          }
+        }
+
+        /* ── ALL LAYERS FAILED ── */
+        if (!succeeded) {
+          console.error("[analyze-file] ALL LAYERS FAILED:\n", diagnostics.join("\n"));
+          await write(
+            `❌ **Error: Buffer-to-Image Conversion Failed**\n\n` +
+            `All three extraction layers failed for \`${fileName}\`.\n\n` +
+            `**Diagnostic report:**\n` +
+            diagnostics.map((d) => `- ${d}`).join("\n") +
+            `\n\n**To fix:** Check the Next.js server terminal for ` +
+            `\`[pdf-parse] getScreenshot FAILED\` and ` +
+            `\`[renderPdfToImages] RENDER FAILED\` stack traces.\n\n` +
+            `**Immediate workaround:** Upload a screenshot of the page as a **.jpg** file.`
           );
-          await writeStr(
-            `⚠️ **Vision Analysis Failed** — PDF page rendering failed.\n\n` +
-            `The system could not convert this PDF's pages into images for visual analysis. ` +
-            `This is a server-side rendering error, not a content issue.\n\n` +
-            `**To analyze this document:**\n` +
-            `- Take a screenshot of the page and upload it as a **.jpg** or **.png** file.\n` +
-            `- The Vision model will then read it directly from the image.`
-          );
-          /* No credit deduction — analysis did not happen */
-          return;
         }
 
       /* ── TEXT FILE ──────────────────────────────────────────────── */
       } else {
-        console.log("[analyze-file] TEXT path →", fileName);
+        console.log("[analyze-file] TEXT →", fileName);
         const rawText = Buffer.from(fileContent, "base64").toString("utf8");
         const content =
           `**File:** \`${fileName}\`\n\n` +
           `**Content:**\n\n${rawText.slice(0, 14_000)}\n\n` +
           `---\n**Question:** ${userQ}`;
-
-        let stream: any;
         try {
-          stream = await textStream(groq, content);
+          const stream = await textGroqStream(groq, content);
+          await pipe(stream, writer, encoder);
+          succeeded = true;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          await writeStr(`⚠️ **Analysis Failed** — Groq API error: ${msg}`);
-          return;
+          await write(`⚠️ **Analysis Failed** — Groq API error: ${msg}`);
         }
-
-        await pipe(stream, writer, encoder);
-        succeeded = true;
       }
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[analyze-file] Unhandled top-level error:", err instanceof Error ? err.stack : err);
-      try {
-        await writeStr(`\n\n⚠️ **Unexpected Error:** ${msg}`);
-      } catch { /* writer may already be closed */ }
+      console.error("[analyze-file] Top-level error:", err instanceof Error ? err.stack : err);
+      try { await write(`\n\n⚠️ **Unexpected Error:** ${msg}`); } catch { /* writer closed */ }
     } finally {
       await writer.close().catch(() => {});
 
-      /* Credit deduction — only on successful analysis */
       if (succeeded && profile.subscription === "free") {
         await UserProfile.updateOne({ email }, { $inc: { credits: -CREDITS.IMAGE } })
           .catch((e: unknown) => console.error("[analyze-file] credit deduction failed:", e));

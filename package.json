@@ -1,6 +1,6 @@
 {
-  "name": "ai-nexus",
-  "version": "0.1.0",
+  "name": "ai-nexus-quantum",
+  "version": "4.0.2",
   "private": true,
   "scripts": {
     "dev": "next dev",

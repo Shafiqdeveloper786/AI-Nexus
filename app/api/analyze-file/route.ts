@@ -6,11 +6,13 @@ export const runtime    = "nodejs";
 export const maxDuration = 60;
 
 /* ── Models ──────────────────────────────────────────────────────────────────
-   VISION_MODEL  — multimodal: handles images and scanned/image-heavy PDFs
-   TEXT_MODEL    — fast text analysis for text-based PDFs and documents
+   VISION_PRIMARY   — Llama 4 Scout (multimodal, preferred)
+   VISION_FALLBACK  — Llama 3.2 Vision (used if primary returns 503 / errors)
+   TEXT_MODEL       — fast text analysis for text-based PDFs and documents
    ─────────────────────────────────────────────────────────────────────────── */
-const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
-const TEXT_MODEL   = "llama-3.3-70b-versatile";
+const VISION_PRIMARY  = "meta-llama/llama-4-scout-17b-16e-instruct";
+const VISION_FALLBACK = "llama-3.2-11b-vision-preview";
+const TEXT_MODEL      = "llama-3.3-70b-versatile";
 
 /* Min extractable chars before we classify a PDF as "text-based" */
 const MIN_TEXT_CHARS = 80;
@@ -20,8 +22,36 @@ const ANALYSIS_SYSTEM = `You are AI Nexus — an expert document and image analy
 **Response guidelines:**
 - For images / scanned documents: describe what you see precisely, then answer the question.
 - For text documents: identify the key information and answer directly.
-- Always use **bold headings**, bullet points, and code blocks where appropriate.
-- Lead with the most important finding. Be thorough but concise.`;
+- Use **bold headings** and bullet points to structure your response clearly.
+- Lead with the most important finding. Be thorough but concise.
+
+**STRICT RULE — Code blocks:**
+Do NOT generate any fenced code blocks (\`\`\`...\`\`\`) unless the user explicitly asks for code. Document analysis responses must be pure text with Markdown formatting only.`;
+
+/* ── Try vision model with automatic fallback ────────────────────────────── */
+async function callVision(
+  groq: Groq,
+  content: any[],
+  maxTokens = 1500
+): Promise<any> {
+  try {
+    return await groq.chat.completions.create({
+      model:      VISION_PRIMARY,
+      messages:   [{ role: "user", content }],
+      stream:     true,
+      max_tokens: maxTokens,
+    });
+  } catch (primaryErr: unknown) {
+    const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    console.warn("[analyze-file] Vision primary failed (%s) — trying fallback", msg.slice(0, 60));
+    return groq.chat.completions.create({
+      model:      VISION_FALLBACK,
+      messages:   [{ role: "user", content }],
+      stream:     true,
+      max_tokens: maxTokens,
+    });
+  }
+}
 
 /* ── PDF-to-PNG renderer (pdfjs-dist v5 + canvas) ───────────────────────────
    Returns an array of base64-encoded PNG strings, one per page rendered.
@@ -137,24 +167,16 @@ export async function POST(req: NextRequest) {
       let stream: any;
 
       /* ────────────────────────────────────────────────────────────────────
-         PATH A: Image file → vision model directly
+         PATH A: Image file → vision model (primary → fallback)
          ──────────────────────────────────────────────────────────────────── */
       if (fileType === "image") {
         console.log("[analyze-file] Vision path — image file:", fileName);
         const dataUrl = `data:${mimeType ?? "image/jpeg"};base64,${fileContent}`;
 
-        stream = await groq.chat.completions.create({
-          model: VISION_MODEL,
-          messages: [{
-            role:    "user",
-            content: [
-              { type: "text",      text: userQ },
-              { type: "image_url", image_url: { url: dataUrl } },
-            ] as any,
-          }],
-          stream:     true,
-          max_tokens: 1024,
-        });
+        stream = await callVision(groq, [
+          { type: "text",      text: userQ },
+          { type: "image_url", image_url: { url: dataUrl } },
+        ] as any[], 1024);
 
       /* ────────────────────────────────────────────────────────────────────
          PATH B: PDF — text extraction first, vision fallback for scanned PDFs
@@ -191,9 +213,9 @@ export async function POST(req: NextRequest) {
           });
 
         } else {
-          /* ── Scanned/image PDF → render pages → vision model ── */
+          /* ── Scanned/image PDF → render pages → vision model (primary → fallback) ── */
           await writer.write(encoder.encode(
-            `> 🔍 **Scanned PDF detected** — rendering pages for visual analysis…\n\n`
+            `🔍 **Analyzing document visual context…**\n\n`
           ));
 
           const pageImages = await renderPdfToImages(pdfBuffer, 3);
@@ -212,12 +234,7 @@ export async function POST(req: NextRequest) {
               })),
             ];
 
-            stream = await groq.chat.completions.create({
-              model: VISION_MODEL,
-              messages: [{ role: "user", content }],
-              stream:     true,
-              max_tokens: 1500,
-            });
+            stream = await callVision(groq, content, 1500);
 
           } else {
             /* Both text and render failed — helpful fallback */

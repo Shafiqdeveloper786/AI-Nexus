@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createRequire } from "module";
 import Groq from "groq-sdk";
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
@@ -8,62 +9,57 @@ import { CREDITS } from "@/lib/credits";
 export const runtime    = "nodejs";
 export const maxDuration = 60;
 
-/* ── Models ──────────────────────────────────────────────────────────────────
-   VISION_PRIMARY   — Llama 4 Scout (best multimodal accuracy)
-   VISION_FALLBACK  — Llama 3.2 Vision (auto-used if primary is unavailable)
-   TEXT_MODEL       — Llama 3.3 70B (plain-text content)
-   ─────────────────────────────────────────────────────────────────────────── */
+/* ── Require native canvas via CJS (avoids ESM dynamic-import timing issues) */
+const _require    = createRequire(import.meta.url);
+const { createCanvas } = _require("canvas") as typeof import("canvas");
+
+/* ── Models ─────────────────────────────────────────────────────────────────── */
 const VISION_PRIMARY  = "meta-llama/llama-4-scout-17b-16e-instruct";
 const VISION_FALLBACK = "llama-3.2-11b-vision-preview";
 const TEXT_MODEL      = "llama-3.3-70b-versatile";
+const MIN_TEXT_CHARS  = 50;
 
-const MIN_TEXT_CHARS = 80;
+/* ── pdfjs singleton (initialised once per Lambda cold-start) ─────────────── */
+let pdfjsLib: any = null;
 
-const ANALYSIS_SYSTEM = `You are AI Nexus — an expert document and image analyst.
+async function getPdfjs(): Promise<any> {
+  if (pdfjsLib) return pdfjsLib;
+  pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs" as string) as any;
 
-**Response guidelines:**
-- Describe visual content precisely, then answer the user's question directly.
-- For text documents: identify key information and answer directly.
-- Use **bold headings** and bullet points. Be thorough but concise.
+  /* Build cross-platform file:// URL for the worker */
+  const { resolve, sep } = await import("path");
+  const abs = resolve(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs");
+  /* Unix: /abs/path  → file:///abs/path  (file:// + leading /)         *
+   * Win:  D:\path    → file:///D:/path   (file:// + / + drive)         */
+  pdfjsLib.GlobalWorkerOptions.workerSrc = abs.startsWith("/")
+    ? `file://${abs}`
+    : `file:///${abs.split(sep).join("/")}`;
 
-**STRICT RULE:** Do NOT generate fenced code blocks unless the user explicitly requests code. Document analysis must use pure Markdown text formatting only.`;
-
-/* ── buildWorkerUrl ───────────────────────────────────────────────────────────
-   Cross-platform pdfjs worker URL — fixes the 4-slash bug on Linux/Vercel.
-   Unix:    /var/task/node_modules/... → file:///var/task/node_modules/...  (3 /)
-   Windows: D:\path\node_modules\...  → file:///D:/path/node_modules/...   (3 /)
-   ─────────────────────────────────────────────────────────────────────────── */
-function buildWorkerUrl(workerAbsPath: string): string {
-  /* On Unix the path already starts with /, so file:// + /path = file:///path */
-  if (workerAbsPath.startsWith("/"))
-    return `file://${workerAbsPath}`;
-  /* On Windows normalise backslashes and add the extra / for the drive letter */
-  return `file:///${workerAbsPath.replace(/\\/g, "/")}`;
+  console.log("[getPdfjs] workerSrc =", pdfjsLib.GlobalWorkerOptions.workerSrc.slice(0, 70));
+  return pdfjsLib;
 }
 
-/* ── renderPdfToImages ────────────────────────────────────────────────────────
-   Renders the first `maxPages` PDF pages to base64 PNG strings using
-   pdfjs-dist v5 + canvas (both are in serverExternalPackages — not bundled).
-   Always returns [] on any error; caller must handle gracefully.
-   ─────────────────────────────────────────────────────────────────────────── */
+/* ── ANALYSIS_SYSTEM ─────────────────────────────────────────────────────── */
+const ANALYSIS_SYSTEM = `You are AI Nexus — an expert document and image analyst.
+
+**Guidelines:**
+- Describe visual content precisely, then answer the user's question directly.
+- For text content: identify key information and answer concisely.
+- Use **bold headings** and bullet points.
+
+**STRICT RULE — No code blocks** unless the user explicitly requests code.`;
+
+/* ════════════════════════════════════════════════════════════════════════════
+   renderPdfToImages
+   Uses pdfjs-dist + canvas (CJS-required, not dynamically imported).
+   Returns base64 PNG strings, one per page. Returns [] on any error.
+   ════════════════════════════════════════════════════════════════════════════ */
 async function renderPdfToImages(pdfBuffer: Buffer, maxPages = 3): Promise<string[]> {
   const images: string[] = [];
-  let   pdfDoc:  any     = null;
+  let   pdfDoc: any      = null;
 
   try {
-    const [pdfjs, canvasMod, path] = await Promise.all([
-      import("pdfjs-dist/legacy/build/pdf.mjs" as string) as Promise<any>,
-      import("canvas")                                    as Promise<any>,
-      import("path")                                      as Promise<any>,
-    ]);
-
-    /* ── Cross-platform worker URL (the previous Linux bug fixed here) ── */
-    const workerAbs = path.resolve(
-      process.cwd(),
-      "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
-    );
-    pdfjs.GlobalWorkerOptions.workerSrc = buildWorkerUrl(workerAbs);
-    console.log("[renderPdfToImages] workerSrc =", pdfjs.GlobalWorkerOptions.workerSrc);
+    const pdfjs = await getPdfjs();
 
     pdfDoc = await pdfjs.getDocument({
       data:            new Uint8Array(pdfBuffer),
@@ -73,24 +69,25 @@ async function renderPdfToImages(pdfBuffer: Buffer, maxPages = 3): Promise<strin
     }).promise;
 
     const pages = Math.min(pdfDoc.numPages, maxPages);
-    console.log("[renderPdfToImages] rendering %d / %d page(s)", pages, pdfDoc.numPages);
+    console.log("[renderPdfToImages] rendering %d / %d pages", pages, pdfDoc.numPages);
 
     for (let p = 1; p <= pages; p++) {
       const page     = await pdfDoc.getPage(p);
       const viewport = page.getViewport({ scale: 1.5 });
-      const canvas   = canvasMod.createCanvas(
-        Math.floor(viewport.width),
-        Math.floor(viewport.height)
-      );
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      images.push(canvas.toBuffer("image/png").toString("base64"));
-      page.cleanup();
-    }
+      const w        = Math.floor(viewport.width);
+      const h        = Math.floor(viewport.height);
+      const canvas   = createCanvas(w, h);
+      const ctx      = canvas.getContext("2d");
 
-    console.log("[renderPdfToImages] produced %d image(s)", images.length);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      const b64 = canvas.toBuffer("image/png").toString("base64");
+      images.push(b64);
+      page.cleanup();
+      console.log("[renderPdfToImages] page %d: %dx%d  %dKB", p, w, h, Math.round(b64.length * 0.75 / 1024));
+    }
   } catch (err) {
-    /* Log the real error so it shows in server logs for debugging */
-    console.error("[renderPdfToImages] FAILED:", err instanceof Error ? err.stack ?? err.message : err);
+    console.error("[renderPdfToImages] FAILED:", err instanceof Error ? err.stack : String(err));
   } finally {
     await pdfDoc?.destroy().catch(() => {});
   }
@@ -98,70 +95,76 @@ async function renderPdfToImages(pdfBuffer: Buffer, maxPages = 3): Promise<strin
   return images;
 }
 
-/* ── extractPdfText ──────────────────────────────────────────────────────────
-   Extracts selectable text from a PDF. Returns "" on any failure.
-   ─────────────────────────────────────────────────────────────────────────── */
+/* ── extractPdfText ──────────────────────────────────────────────────────── */
 async function extractPdfText(pdfBuffer: Buffer): Promise<string> {
   try {
-    const { PDFParse } = await import("pdf-parse") as any;
-    const result       = await new PDFParse({ data: pdfBuffer, verbosity: 0 }).getText();
-    return (result.text ?? "").trim();
+    const pdfParse       = _require("pdf-parse") as any;
+    const PDFParseClass  = pdfParse.PDFParse ?? pdfParse.default?.PDFParse;
+
+    if (PDFParseClass) {
+      const r = await new PDFParseClass({ data: pdfBuffer, verbosity: 0 }).getText();
+      return (r.text ?? "").trim();
+    }
+    /* Older pdf-parse API */
+    const r = await pdfParse(pdfBuffer);
+    return (r.text ?? "").trim();
   } catch (err) {
     console.warn("[extractPdfText] failed:", err instanceof Error ? err.message : err);
     return "";
   }
 }
 
-/* ── callVision ───────────────────────────────────────────────────────────────
-   Tries VISION_PRIMARY; if it fails tries VISION_FALLBACK.
-   Returns null (instead of throwing) if both models are unavailable,
-   so the caller can switch to a text-model path without crashing.
-   ─────────────────────────────────────────────────────────────────────────── */
+/* ── callVision — primary → fallback → null (never throws) ──────────────── */
 async function callVision(
   groq:      Groq,
   content:   any[],
   maxTokens  = 1500,
 ): Promise<any | null> {
-  /* Try primary */
-  try {
-    const stream = await groq.chat.completions.create({
-      model:      VISION_PRIMARY,
-      messages:   [{ role: "user", content }],
-      stream:     true,
-      max_tokens: maxTokens,
-    });
-    console.log("[callVision] primary succeeded:", VISION_PRIMARY);
-    return stream;
-  } catch (primaryErr) {
-    console.warn(
-      "[callVision] primary failed (%s) → trying fallback",
-      primaryErr instanceof Error ? primaryErr.message.slice(0, 80) : primaryErr
-    );
+  for (const model of [VISION_PRIMARY, VISION_FALLBACK]) {
+    try {
+      const stream = await groq.chat.completions.create({
+        model,
+        messages:   [{ role: "user", content }],
+        stream:     true,
+        max_tokens: maxTokens,
+      });
+      console.log("[callVision] succeeded with", model);
+      return stream;
+    } catch (err) {
+      console.warn("[callVision] %s failed:", model, err instanceof Error ? err.message.slice(0, 80) : err);
+    }
   }
+  console.error("[callVision] both models unavailable");
+  return null;
+}
 
-  /* Try fallback */
+/* ── callText — always resolves, falls back to informative message ────────── */
+async function callText(
+  groq:    Groq,
+  content: string,
+  system:  string,
+): Promise<any | null> {
   try {
-    const stream = await groq.chat.completions.create({
-      model:      VISION_FALLBACK,
-      messages:   [{ role: "user", content }],
-      stream:     true,
-      max_tokens: maxTokens,
+    return await groq.chat.completions.create({
+      model:       TEXT_MODEL,
+      messages:    [
+        { role: "system", content: system },
+        { role: "user",   content },
+      ],
+      stream:      true,
+      max_tokens:  1500,
+      temperature: 0.4,
     });
-    console.log("[callVision] fallback succeeded:", VISION_FALLBACK);
-    return stream;
-  } catch (fallbackErr) {
-    console.error(
-      "[callVision] fallback ALSO failed:",
-      fallbackErr instanceof Error ? fallbackErr.message.slice(0, 120) : fallbackErr
-    );
-    return null; // caller must handle this
+  } catch (err) {
+    console.error("[callText] failed:", err instanceof Error ? err.message : err);
+    return null;
   }
 }
 
 /* ── Request body ─────────────────────────────────────────────────────────── */
 interface AnalyzeBody {
   question:    string;
-  fileContent: string;   // base64
+  fileContent: string;
   fileType:    "image" | "text" | "pdf";
   fileName:    string;
   mimeType?:   string;
@@ -170,27 +173,16 @@ interface AnalyzeBody {
 /* ════════════════════════════════════════════════════════════════════════════
    POST /api/analyze-file — Forced Multimodal Pipeline
 
-   Every document type is processed through the Vision model where possible.
-
-   PATH A — Image (.jpg / .png / .webp / .gif)
-     callVision(image) → [primary → fallback → null]
-     if null → apology token
-
-   PATH B — PDF (any: text-based, scanned, mixed)
-     Parallel: extractPdfText() + renderPdfToImages()
-     ├─ pages rendered → callVision(pages + text context) → [primary → fallback]
-     │     if vision returns null AND text available → TEXT_MODEL
-     │     if vision returns null AND no text → apology token
-     ├─ no pages + text available → TEXT_MODEL
-     └─ nothing extracted → apology token
-
-   PATH C — Text file (.txt / .md / .csv / .json)
-     TEXT_MODEL with full content
-
-   Credits: CREDITS.IMAGE (12) deducted after successful stream.
+   IMAGE  →  callVision directly
+   PDF    →  parallel(renderPages, extractText)
+                B1: pages OK            → callVision(pages + textCtx)
+                B2: pages fail, text OK → callText(extracted text)
+                B3: both fail           → callVision(text-only prompt)
+                B∅: all models down     → short apology, stream closed
+   TEXT   →  callText
    ════════════════════════════════════════════════════════════════════════════ */
 export async function POST(req: NextRequest) {
-  /* ── 1. Auth ─────────────────────────────────────────────────────────── */
+  /* 1. Auth */
   const session = await auth();
   if (!session?.user?.email)
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -198,135 +190,102 @@ export async function POST(req: NextRequest) {
   const email = session.user.email;
   const name  = session.user.name ?? email.split("@")[0];
 
-  /* ── 2. Parse body ───────────────────────────────────────────────────── */
+  /* 2. Body */
   let body: AnalyzeBody;
-  try   { body = await req.json(); }
+  try { body = await req.json(); }
   catch { return Response.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
   const { question, fileContent, fileType, fileName, mimeType } = body;
-  if (!fileContent)
-    return Response.json({ error: "fileContent is required" }, { status: 400 });
+  if (!fileContent) return Response.json({ error: "fileContent is required" }, { status: 400 });
 
   const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey)
-    return Response.json({ error: "GROQ_API_KEY not configured" }, { status: 503 });
+  if (!groqKey)  return Response.json({ error: "GROQ_API_KEY not configured" }, { status: 503 });
 
-  /* ── 3. DB + credit pre-check ────────────────────────────────────────── */
-  try { await connectDB(); } catch (err) {
-    return Response.json(
-      { error: "DB_CONNECTION_FAILED", message: err instanceof Error ? err.message : String(err) },
-      { status: 503 }
-    );
-  }
+  /* 3. DB + credit check */
+  try { await connectDB(); }
+  catch (e) { return Response.json({ error: "DB_CONNECTION_FAILED", message: String(e) }, { status: 503 }); }
 
   let profile: any;
-  try {
-    profile = await (UserProfile as any).findOrCreate(email, name);
-  } catch (err) {
-    return Response.json(
-      { error: "PROFILE_FETCH_FAILED", message: err instanceof Error ? err.message : String(err) },
-      { status: 500 }
-    );
-  }
+  try { profile = await (UserProfile as any).findOrCreate(email, name); }
+  catch (e) { return Response.json({ error: "PROFILE_FETCH_FAILED", message: String(e) }, { status: 500 }); }
 
-  if (profile.subscription === "free" && profile.credits < CREDITS.IMAGE) {
-    return Response.json(
-      {
-        error:    "NO_CREDITS",
-        message:  `Document analysis costs ${CREDITS.IMAGE} credits. You have ${profile.credits} remaining.`,
-        required: CREDITS.IMAGE,
-        current:  profile.credits,
-      },
-      { status: 403 }
-    );
-  }
+  if (profile.subscription === "free" && profile.credits < CREDITS.IMAGE)
+    return Response.json({
+      error: "NO_CREDITS",
+      message: `Document analysis costs ${CREDITS.IMAGE} credits. You have ${profile.credits} remaining.`,
+      required: CREDITS.IMAGE,
+      current:  profile.credits,
+    }, { status: 403 });
 
-  /* ── 4. Stream setup ─────────────────────────────────────────────────── */
+  /* 4. Stream plumbing */
   const groq    = new Groq({ apiKey: groqKey });
-  const userQ   = question?.trim() || "Analyse this content and summarise the key points.";
+  const userQ   = question?.trim() || "Analyse this document and summarise the key information.";
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer  = writable.getWriter();
   const encoder = new TextEncoder();
 
-  /* helper: write a string token then end stream */
-  const writeAndClose = async (text: string) => {
-    await writer.write(encoder.encode(text));
-    await writer.close().catch(() => {});
+  const write  = (t: string)  => writer.write(encoder.encode(t));
+  const finish = async () => { await writer.close().catch(() => {}); };
+
+  /* Drain a Groq stream to the client */
+  const pipe = async (stream: any): Promise<boolean> => {
+    if (!stream) return false;
+    try {
+      for await (const chunk of stream) {
+        const t = chunk.choices[0]?.delta?.content ?? "";
+        if (t) await write(t);
+      }
+      return true;
+    } catch (e) {
+      console.error("[pipe] stream error:", e);
+      return false;
+    }
   };
 
-  /* ── 5. Async pipeline ───────────────────────────────────────────────── */
+  /* 5. Async pipeline */
   (async () => {
-    let analysisSucceeded = false;
+    let succeeded = false;
 
     try {
-      /* ────────────────────────────────────────────────────────────────────
-         PATH A: Image file → Vision (primary → fallback → null)
-         ──────────────────────────────────────────────────────────────────── */
+      /* ── PATH A: Image ─────────────────────────────────────────── */
       if (fileType === "image") {
-        console.log("[analyze-file] PATH A — image:", fileName, mimeType);
-
-        const stream = await callVision(groq, [
+        console.log("[analyze-file] PATH A — image:", fileName);
+        const dataUrl = `data:${mimeType ?? "image/jpeg"};base64,${fileContent}`;
+        const stream  = await callVision(groq, [
           { type: "text",      text: userQ },
-          {
-            type:      "image_url",
-            image_url: { url: `data:${mimeType ?? "image/jpeg"};base64,${fileContent}` },
-          },
+          { type: "image_url", image_url: { url: dataUrl } },
         ] as any[], 1024);
+        succeeded = await pipe(stream);
 
-        if (!stream) {
-          await writeAndClose(
-            "I'm unable to analyze this image right now due to high server load. " +
-            "Please try again in a moment."
-          );
-          return;
-        }
-
-        for await (const chunk of stream) {
-          const text = chunk.choices[0]?.delta?.content ?? "";
-          if (text) await writer.write(encoder.encode(text));
-        }
-        analysisSucceeded = true;
-
-      /* ────────────────────────────────────────────────────────────────────
-         PATH B: PDF — Forced Multimodal
-                 Always run BOTH text extraction AND page rendering in
-                 parallel. Always prefer visual analysis via Vision model.
-         ──────────────────────────────────────────────────────────────────── */
+      /* ── PATH B: PDF ────────────────────────────────────────────── */
       } else if (fileType === "pdf") {
-        const pdfBuffer = Buffer.from(fileContent, "base64");
+        const pdfBuf = Buffer.from(fileContent, "base64");
 
-        /* Emit status immediately into the stable pre-created bubble */
-        await writer.write(encoder.encode("🔍 **Analyzing document visual context…**\n\n"));
+        /* Status token — appears in the stable pre-created bubble */
+        await write("🔍 **Analyzing document visual context…**\n\n");
 
-        /* Run both operations concurrently — never sequential */
-        const [rawText, pageImages] = await Promise.all([
-          extractPdfText(pdfBuffer),
-          renderPdfToImages(pdfBuffer, 3),
+        /* Run rendering + text extraction in parallel */
+        const [pageImages, rawText] = await Promise.all([
+          renderPdfToImages(pdfBuf, 3),
+          extractPdfText(pdfBuf),
         ]);
 
         const cleanLen = rawText.replace(/\s+/g, "").length;
-        console.log(
-          "[analyze-file] PATH B — file=%s  pages=%d  textChars=%d",
-          fileName, pageImages.length, cleanLen
-        );
+        console.log("[analyze-file] PATH B — file=%s pages=%d textChars=%d", fileName, pageImages.length, cleanLen);
 
-        let stream: any | null = null;
-
-        /* ── Sub-path B1: Pages rendered → Vision model ── */
+        /* B1: Pages rendered → Vision (best quality) */
         if (pageImages.length > 0) {
-          /* Merge extracted text as additional context for the vision model */
-          const textContext = cleanLen >= MIN_TEXT_CHARS
-            ? `\n\n**Extracted text (additional context — prioritise the visual pages):**\n${rawText.slice(0, 5_000)}`
+          const textCtx = cleanLen >= MIN_TEXT_CHARS
+            ? `\n\n**Extracted text (additional context):**\n${rawText.slice(0, 5_000)}`
             : "";
 
-          const visionContent: any[] = [
+          const content: any[] = [
             {
               type: "text",
               text: (
-                `You are analyzing a PDF document: "${fileName}"\n` +
-                `${pageImages.length} page(s) are attached as images.` +
-                textContext +
-                `\n\n---\nUser question: ${userQ}`
+                `Analyzing PDF: "${fileName}" — ${pageImages.length} page(s) rendered visually.` +
+                textCtx +
+                `\n\n---\n**User question:** ${userQ}`
               ),
             },
             ...pageImages.map((img) => ({
@@ -335,122 +294,74 @@ export async function POST(req: NextRequest) {
             })),
           ];
 
-          stream = await callVision(groq, visionContent, 1500);
+          const stream = await callVision(groq, content, 1500);
 
-          /* Vision failed but we have text → fall through to text model */
-          if (!stream && cleanLen >= MIN_TEXT_CHARS) {
-            console.warn("[analyze-file] Vision returned null — falling back to text model");
+          if (stream) {
+            succeeded = await pipe(stream);
+          } else if (cleanLen >= MIN_TEXT_CHARS) {
+            /* Vision unavailable but text exists → text model */
+            console.warn("[analyze-file] Vision null, falling to text model (B1→B2)");
+            const s = await callText(groq,
+              `**File:** \`${fileName}\`\n\n**Content:**\n\n${rawText.slice(0, 14_000)}\n\n---\n**Question:** ${userQ}`,
+              ANALYSIS_SYSTEM,
+            );
+            succeeded = await pipe(s);
           }
         }
 
-        /* ── Sub-path B2: No pages OR vision returned null → Text model ── */
-        if (!stream && cleanLen >= MIN_TEXT_CHARS) {
-          console.log("[analyze-file] Sub-path B2 — text model with %d chars", cleanLen);
-          stream = await groq.chat.completions.create({
-            model:       TEXT_MODEL,
-            messages:    [
-              { role: "system", content: ANALYSIS_SYSTEM },
-              {
-                role:    "user",
-                content: (
-                  `**Document:** \`${fileName}\`\n\n` +
-                  `**Content:**\n\n${rawText.slice(0, 14_000)}\n\n` +
-                  `---\n**Question:** ${userQ}`
-                ),
-              },
-            ],
-            stream:      true,
-            max_tokens:  1500,
-            temperature: 0.4,
-          });
-        }
-
-        /* ── Sub-path B3: Truly nothing extracted ── */
-        if (!stream) {
-          /* Do NOT show guidance messages — make one final vision attempt
-             using only the prompt (the model may still be able to help) */
-          console.warn("[analyze-file] Sub-path B3 — no pages, no text. Final vision attempt.");
-          stream = await callVision(groq, [
-            {
-              type: "text",
-              text: (
-                `A PDF file named "${fileName}" was uploaded but its visual content could not ` +
-                `be rendered at this time. Please let the user know politely that the document ` +
-                `could not be fully processed and suggest they re-upload it or paste the text content. ` +
-                `Answer their question as best you can: ${userQ}`
-              ),
-            },
-          ] as any[], 400);
-        }
-
-        if (!stream) {
-          await writeAndClose(
-            "I'm experiencing high load and couldn't process this document right now. " +
-            "Please try again in a moment."
+        /* B2: No pages + text available → text model */
+        if (!succeeded && cleanLen >= MIN_TEXT_CHARS) {
+          console.log("[analyze-file] PATH B2 — text model  chars=%d", cleanLen);
+          const stream = await callText(groq,
+            `**File:** \`${fileName}\`\n\n**Content:**\n\n${rawText.slice(0, 14_000)}\n\n---\n**Question:** ${userQ}`,
+            ANALYSIS_SYSTEM,
           );
-          return;
+          succeeded = await pipe(stream);
         }
 
-        for await (const chunk of stream) {
-          const text = chunk.choices[0]?.delta?.content ?? "";
-          if (text) await writer.write(encoder.encode(text));
+        /* B3: Nothing extracted → ask vision model to respond gracefully */
+        if (!succeeded) {
+          console.warn("[analyze-file] PATH B3 — no pages, no text, last-resort vision call");
+          const stream = await callVision(groq, [{
+            type: "text",
+            text: (
+              `A PDF named "${fileName}" was uploaded. The pages could not be rendered as images ` +
+              `and no selectable text was found. Please respond to the user's question: "${userQ}" ` +
+              `based on any inference you can make from the filename, and offer helpful suggestions ` +
+              `to proceed. Do not mention technical rendering errors.`
+            ),
+          }] as any[], 400);
+          succeeded = await pipe(stream);
         }
-        analysisSucceeded = true;
 
-      /* ────────────────────────────────────────────────────────────────────
-         PATH C: Plain text file (.txt / .md / .csv / .json) → text model
-         ──────────────────────────────────────────────────────────────────── */
+        /* B∅: All providers down */
+        if (!succeeded) {
+          await write("The document analysis service is experiencing high load. Please try again in a moment.");
+        }
+
+      /* ── PATH C: Plain text file ────────────────────────────────── */
       } else {
         console.log("[analyze-file] PATH C — text file:", fileName);
         const rawText = Buffer.from(fileContent, "base64").toString("utf8");
-
-        const stream = await groq.chat.completions.create({
-          model:       TEXT_MODEL,
-          messages:    [
-            { role: "system", content: ANALYSIS_SYSTEM },
-            {
-              role:    "user",
-              content: (
-                `**File:** \`${fileName}\`\n\n` +
-                `**Content:**\n\n${rawText.slice(0, 14_000)}\n\n` +
-                `---\n**Question:** ${userQ}`
-              ),
-            },
-          ],
-          stream:      true,
-          max_tokens:  1500,
-          temperature: 0.4,
-        });
-
-        for await (const chunk of stream) {
-          const text = chunk.choices[0]?.delta?.content ?? "";
-          if (text) await writer.write(encoder.encode(text));
-        }
-        analysisSucceeded = true;
+        const stream  = await callText(groq,
+          `**File:** \`${fileName}\`\n\n**Content:**\n\n${rawText.slice(0, 14_000)}\n\n---\n**Question:** ${userQ}`,
+          ANALYSIS_SYSTEM,
+        );
+        succeeded = await pipe(stream);
       }
 
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unexpected analysis error";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unexpected error";
       console.error("[analyze-file] Unhandled error:", err instanceof Error ? err.stack : err);
-      try {
-        await writer.write(
-          encoder.encode(`\n\n⚠️ **Analysis Error:** ${msg}\n\n_Please try again._`)
-        );
-      } catch { /* writer may already be closed */ }
+      try { await write(`\n\n⚠️ **Error:** ${msg}`); } catch { /* writer closed */ }
     } finally {
-      await writer.close().catch(() => {});
+      await finish();
 
-      /* ── Credit deduction — only on successful analysis ─────────────── */
-      if (analysisSucceeded && profile.subscription === "free") {
-        try {
-          await UserProfile.updateOne({ email }, { $inc: { credits: -CREDITS.IMAGE } });
-          console.log(
-            "[analyze-file] Deducted %d credits from %s  remaining≈%d",
-            CREDITS.IMAGE, email, profile.credits - CREDITS.IMAGE
-          );
-        } catch (saveErr) {
-          console.error("[analyze-file] Credit deduction failed:", saveErr);
-        }
+      /* Deduct 12 credits on success */
+      if (succeeded && profile.subscription === "free") {
+        await UserProfile.updateOne({ email }, { $inc: { credits: -CREDITS.IMAGE } })
+          .catch((e: unknown) => console.error("[analyze-file] credit deduction failed:", e));
+        console.log("[analyze-file] Deducted %d credits from %s", CREDITS.IMAGE, email);
       }
     }
   })();

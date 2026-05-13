@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Wand2, Copy, Check, Download, AlertTriangle,
   User, Briefcase, GraduationCap, Zap, ThumbsUp, ThumbsDown,
+  Mail, Phone, Link2,
 } from "lucide-react";
 import { pushNotif } from "@/lib/notifications";
 import ReactMarkdown from "react-markdown";
@@ -183,12 +184,44 @@ const previewMd: React.ComponentProps<typeof ReactMarkdown>["components"] = {
       {children}
     </h3>
   ),
-  p: ({ children }) => (
-    <p style={{ fontFamily: "'Inter', sans-serif" }}
-      className="text-sm text-slate-600 mb-2 leading-relaxed">
-      {children}
-    </p>
-  ),
+  p: ({ children }) => {
+    /* Detect contact-info line built by buildPreviewMarkdown: parts joined with "  ·  " */
+    const raw = typeof children === "string" ? children
+      : Array.isArray(children)
+        ? children.map(c => (typeof c === "string" ? c : "")).join("")
+        : "";
+    if (raw.includes("  ·  ")) {
+      const parts = raw.split("  ·  ").map(s => s.trim()).filter(Boolean);
+      return (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
+          {parts.map((part, i) => {
+            const isEmail    = part.includes("@");
+            const isPhone    = /^\+?[\d\s\-()+]{6,}$/.test(part);
+            const isLinkedIn = /linkedin|http|www\./i.test(part);
+            const Icon = isEmail ? Mail : isPhone ? Phone : isLinkedIn ? Link2 : Link2;
+            return (
+              <span key={i} className="flex items-center gap-1.5 text-sm text-slate-500"
+                style={{ fontFamily: "'Inter', sans-serif" }}>
+                <Icon className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+                {isEmail ? (
+                  <a href={`mailto:${part}`} className="hover:text-indigo-600 transition-colors">{part}</a>
+                ) : isLinkedIn ? (
+                  <a href={part.startsWith("http") ? part : `https://${part}`} target="_blank" rel="noopener noreferrer"
+                    className="hover:text-indigo-600 transition-colors">{part}</a>
+                ) : part}
+              </span>
+            );
+          })}
+        </div>
+      );
+    }
+    return (
+      <p style={{ fontFamily: "'Inter', sans-serif" }}
+        className="text-sm text-slate-600 mb-2 leading-relaxed">
+        {children}
+      </p>
+    );
+  },
   ul: ({ children }) => <ul className="space-y-1 mb-3">{children}</ul>,
   li: ({ children }) => (
     <li style={{ fontFamily: "'Inter', sans-serif" }}

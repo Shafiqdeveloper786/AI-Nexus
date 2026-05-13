@@ -313,8 +313,9 @@ export default function FluidMessage({ message, index: _index }: Props) {
               fontFamily:   "Rajdhani, sans-serif",
               lineHeight:   1.7,
               wordBreak:    "break-word",
-              overflowWrap: "break-word",
+              overflowWrap: "anywhere",
               whiteSpace:   "pre-wrap",
+              maxWidth:     "min(100%, 90vw)",
             } : {
               /* AI bubble — full glassmorphism, fixed layout, no jump */
               background:           "linear-gradient(135deg, rgba(6,18,40,0.92) 0%, rgba(3,11,26,0.97) 100%)",
@@ -326,7 +327,7 @@ export default function FluidMessage({ message, index: _index }: Props) {
               contain:              "layout",
               willChange:           "contents",
               wordBreak:            "break-word",
-              overflowWrap:         "break-word",
+              overflowWrap:         "anywhere",
             }}
           >
             {isUser ? (

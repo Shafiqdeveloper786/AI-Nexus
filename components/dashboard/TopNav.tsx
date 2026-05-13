@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { signOut } from "next-auth/react";
+import { pushNotif } from "@/lib/notifications";
 import {
   MessageSquare, Code2, ImageIcon, FileText, Database,
   Bell, Menu, PanelRightClose, PanelRightOpen, ChevronRight,
@@ -78,7 +80,23 @@ export default function TopNav({
   const [profileOpen,    setProfileOpen]    = useState(false);
   const [notifOpen,      setNotifOpen]      = useState(false);
   const [notifications,  setNotifications]  = useState<LiveNotif[]>(SEED_NOTIFS);
+  const [signOutConfirm, setSignOutConfirm] = useState(false);
+  const [signingOut,     setSigningOut]     = useState(false);
+  const [mounted,        setMounted]        = useState(false);
   const { profile } = useUserProfile(initialProfile);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOut({ redirect: false });
+      pushNotif({ title: "Signed Out Successfully", sub: "See you next time! 👋", type: "success" });
+      setTimeout(() => { window.location.href = "/auth/login"; }, 900);
+    } catch {
+      setSigningOut(false);
+    }
+  };
 
   /* Listen for live notifications dispatched by any component */
   const addNotif = useCallback((payload: NotifPayload) => {
@@ -118,6 +136,7 @@ export default function TopNav({
   };
 
   return (
+    <>
     <header
       className="flex items-center gap-3 px-4 h-14 flex-shrink-0 z-10 relative"
       style={{
@@ -333,7 +352,7 @@ export default function TopNav({
                     whileHover={{ backgroundColor: "rgba(239,68,68,0.06)", x: 2 }}
                     whileTap={{ scale: 0.97 }}
                     transition={{ duration: 0.15 }}
-                    onClick={() => signOut({ callbackUrl: "/auth/login" })}
+                    onClick={() => { setSignOutConfirm(true); setProfileOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-['Rajdhani'] font-semibold tracking-wide text-red-400 hover:text-red-300 transition-colors"
                   >
                     <LogOut className="w-3.5 h-3.5" />
@@ -348,5 +367,85 @@ export default function TopNav({
         </div>
       </div>
     </header>
+
+    {/* ── Sign-out confirmation modal ─────────────────────────────────── */}
+    {mounted && createPortal(
+      <AnimatePresence>
+        {signOutConfirm && (
+          <motion.div key="signout-backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)" }}
+            onClick={() => !signingOut && setSignOutConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 16 }} animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 16 }} transition={{ type: "spring", stiffness: 360, damping: 30 }}
+              className="w-full max-w-sm rounded-2xl overflow-hidden"
+              style={{
+                background:  "linear-gradient(160deg, rgba(8,22,46,0.99), rgba(3,11,26,0.99))",
+                border:      "1px solid rgba(239,68,68,0.28)",
+                boxShadow:   "0 24px 64px rgba(0,0,0,0.85), 0 0 40px rgba(239,68,68,0.06)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="h-[2px] bg-gradient-to-r from-red-600 via-red-400 to-red-600" />
+              <div className="px-6 py-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                    <LogOut className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div>
+                    <p className="font-['Orbitron'] text-sm font-bold text-white">Sign Out</p>
+                    <p className="text-[10px] font-['Rajdhani'] text-[rgba(148,163,184,0.45)]">Your session will end</p>
+                  </div>
+                </div>
+                <p className="text-sm font-['Rajdhani'] text-[rgba(226,232,240,0.65)] mb-5 leading-relaxed">
+                  Are you sure you want to sign out? You will be redirected to the login page.
+                </p>
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ backgroundColor: "rgba(255,255,255,0.05)" }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setSignOutConfirm(false)}
+                    disabled={signingOut}
+                    className="flex-1 py-2.5 rounded-xl text-[10px] font-['Orbitron'] font-bold text-[rgba(226,232,240,0.55)] disabled:opacity-40 transition-colors"
+                    style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  >
+                    CANCEL
+                  </motion.button>
+                  <motion.button
+                    whileHover={!signingOut ? { boxShadow: "0 0 22px rgba(239,68,68,0.45)" } : {}}
+                    whileTap={!signingOut ? { scale: 0.97 } : {}}
+                    onClick={handleSignOut}
+                    disabled={signingOut}
+                    className="flex-1 py-2.5 rounded-xl text-[10px] font-['Orbitron'] font-bold text-white flex items-center justify-center gap-2 disabled:opacity-70 transition-all"
+                    style={{ background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)" }}
+                  >
+                    {signingOut ? (
+                      <>
+                        <motion.div animate={{ rotate: 360 }}
+                          transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                          className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full" />
+                        SIGNING OUT…
+                      </>
+                    ) : (
+                      <>
+                        <LogOut className="w-3.5 h-3.5" />
+                        YES, SIGN OUT
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>,
+      document.body
+    )}
+    </>
   );
 }
